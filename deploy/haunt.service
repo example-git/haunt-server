@@ -1,0 +1,27 @@
+[Unit]
+Description=Haunt community server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=haunt
+Group=haunt
+StateDirectory=haunt
+WorkingDirectory=/var/lib/haunt
+EnvironmentFile=/etc/haunt.env
+ExecStart=/usr/local/bin/haunt
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=35
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/haunt
+LimitNOFILE=65536
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target
