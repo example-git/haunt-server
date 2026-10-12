@@ -20,9 +20,9 @@ require (
 	github.com/swaggest/jsonschema-go v0.3.78
 	github.com/swaggest/openapi-go v0.2.61
 	github.com/swaggest/swgui v1.8.9
-	golang.org/x/crypto v0.48.0
+	golang.org/x/crypto v0.52.0
 	golang.org/x/image v0.35.0
-	golang.org/x/net v0.50.0
+	golang.org/x/net v0.54.0
 	golang.org/x/time v0.14.0
 )
 
@@ -54,9 +54,9 @@ require (
 	github.com/shurcooL/httpgzip v0.0.0-20190720172056-320755c1c1b0 // indirect
 	github.com/swaggest/refl v1.4.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools/godoc v0.1.0-deprecated // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
