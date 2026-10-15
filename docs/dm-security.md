@@ -1,0 +1,39 @@
+# Direct messages: encryption, storage and recovery
+
+Haunt clients use OpenMLS 0.9.0 (RFC 9420) for one-to-one and group DMs. Text and image keys are encrypted in MLS application messages. Each browser profile or Electron installation has its own Ed25519 device identity and published one-use key packages. The portable WebAssembly engine runs in a bounded worker pool; accounts, groups, pending sends and ratchets persist in IndexedDB. Web Locks serialize state changes across windows/tabs. Web clients require HTTPS or localhost. Electron uses its secure local application origin.
+
+The service is the authentication/device directory and delivery service. It stores ciphertext, encrypted images, membership, devices, sizes, timestamps and delivery metadata. It cannot read new encrypted text/image content through normal administration. It remains trusted to identify users/devices honestly: this initial implementation does not offer independent identity verification or key transparency. A malicious service can introduce a device under someone else's identity. A compromised endpoint or altered web client can also expose plaintext. MLS itself is a maintained library; this Haunt integration has not had an independent security audit.
+
+## Existing history and devices
+
+New official-client DMs have no plaintext fallback. Once a conversation has its MLS group, the server rejects plaintext submissions, including older clients. Legacy records remain readable with a circled exclamation mark and a “Not end-to-end encrypted” tooltip. Decrypted encrypted records show a circled check and an “End-to-end encrypted” tooltip. An encrypted record whose key is unavailable shows a distinct question mark; it is never marked as verified or plaintext. Legacy API clients can still exchange plaintext in a conversation that has never enabled MLS; the client banner does not claim those records are encrypted.
+
+Both participants must have enrolled a capable client at least once to create an encrypted DM. They need not both be online to start a new conversation while unused key packages remain. Adding a new device to an existing encrypted DM requires an existing participating device to be connected. If none is available, the UI explains that it is waiting; it does not silently create a replacement group or send plaintext. New devices receive future messages; old history requires a recovery backup or existing local cache. Losing every key and backup makes old ciphertext unreadable.
+
+Successful sends commit the ratchet and exact outgoing ciphertext together before network transmission. Retries reuse that ciphertext. Membership changes use durable pending state, idempotency IDs and compare-and-swap revisions. Control commits use MLS signed public messages; application messages remain encrypted. Public controls avoid reusing an application encryption nonce when a conflicting membership proposal is discarded. Restored key state is used only for reading; a restored installation enrolls a fresh sending identity.
+
+## Images and server limits
+
+The sender accepts bounded PNG, JPEG, GIF or WebP input (20 MiB, 16 megapixels, 8192 pixels per side), re-encodes it to WebP with JPEG fallback, strips original metadata and scales the longest edge to at most 2560 pixels. Animated input is exported as a still frame. New DM attachments cannot be videos or arbitrary files through the official client. Images are independently AES-256-GCM encrypted with random keys/nonces and conversation/sender/upload-bound authenticated data; keys and filenames travel only inside the encrypted message.
+
+The service cannot inspect ciphertext to prove it is an image. It requires the encrypted upload route, verifies membership, counts reservations, and enforces encrypted file size, total sender storage across all DMs, total server DM storage, and UTC-day image upload/download budgets per sender/requesting user. There is no server-wide daily transfer allowance. Image budgets are separate from channel attachment storage. Admission is transactional under concurrent requests. Downloads reserve the full file size before opening local or third-party storage; range requests, retries and interrupted admitted transfers count again. Purging storage does not refund traffic. These are byte budgets, not a network-speed shaper or a meter for every HTTP/WebSocket byte.
+
+Receivers authenticate/decrypt an image, inspect its real format and dimensions, and decode it before caching. Invalid authentication, executable/vector content, invalid images and oversized dimensions are rejected. A cached validated image is reused without repeating cryptographic validation; ordinary image rendering still decodes it. Local caches can retain plaintext, as can screenshots or readable backups.
+
+Runtime server settings expose all DM limits. Defaults: 2 MiB encrypted image, 100 MiB per sender, 1 GiB total DM image storage, 256 MiB DM text/control storage, 100 MiB uploaded and 1 GiB downloaded per user per UTC day. Text and new encrypted images default to indefinite age retention (zero days), bounded by the storage budgets. Full DM text storage rejects new writes instead of silently evicting old DMs. Changing retention applies to existing retained content; channel retention does not prune DMs. Legacy attachments keep their original expiry.
+
+Cached message presentation has a local format version separate from the server's edit timestamp. Wire envelopes are kept separately from displayed text. Reads of older cached envelopes yield a decryption/loading state and repair the row using the existing device keys, including Home previews; they never display the envelope JSON. Equal-revision replay or a failed decode cannot replace already-decoded text. Newer edits and deletion tombstones still win, including while cache repair is in flight. Unknown encrypted formats display an update notice instead of being interpreted as plaintext. No message-history or key-cache reset is required for this repair.
+
+Quota banners appear at 80% and the Account page shows usage. Purge previews and removes only the current sender's older uploads across that server, in bounded batches, leaving text intact. Counter space is released only after physical deletion succeeds. Recipient caches and exports are not remotely erased.
+
+## Backups
+
+The DM banner exports readable CSV (text only) or HTML ZIP (escaped text plus available server images from the last 30 days and older locally cached images). It combines currently available server history with the local message archive. Missing images and unavailable decryption keys remain explicit. Conversation exports are plaintext; keep them private. Export memory is bounded to 256 MiB.
+
+The password-encrypted client backup includes saved sessions, preferences, notification settings/sounds, volume overrides, DM recovery keys and cached DM text. It does not include image files; use HTML ZIP for those. Recovery data has a 16 MiB limit inside the existing 32 MiB client-backup limit. A backup containing keys cannot undo prior plaintext access, and an administrator resetting a login password cannot restore missing encryption keys.
+
+## Building the portable engine
+
+Ordinary `npm run build` uses checked-in artifacts under `client/static/dm-crypto/`; Rust is not required on the user's Mac. The build verifies hashes of Rust source, Cargo.lock, notices and generated artifacts. To change the engine, install the `wasm32-unknown-unknown` Rust target and wasm-bindgen CLI 0.2.105, then run `npm run build:dm-crypto` from `client/`. Set `WASM_BINDGEN` to a specific CLI path if needed. Cargo dependencies are locked; OpenMLS is exactly 0.9.0. Third-party notices accompany the client.
+
+This update does not add end-to-end encryption to public server channels, voice, camera or screen sharing, and does not change the native macOS capture worker.
