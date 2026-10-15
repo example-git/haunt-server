@@ -1,0 +1,3950 @@
+{
+  "authentication": "Within five seconds of opening either socket, send its authenticate text frame. Use the device-session bearer token in the frame, never in the URL. Event socket logout, revocation or disconnect removes its media participant.",
+  "components": {
+    "schemas": {
+      "AttachmentsAttachment": {
+        "properties": {
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string"
+          },
+          "encrypted": {
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_dm": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "is_dm",
+          "encrypted",
+          "id",
+          "conversation_id",
+          "user_id",
+          "filename",
+          "content_type",
+          "bytes",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "AttachmentsDMPurge": {
+        "properties": {
+          "before": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "files": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "before",
+          "files",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "AttachmentsDMUsage": {
+        "properties": {
+          "downloaded_today": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "limit_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ConfigDMPolicy"
+          },
+          "uploaded_today": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "uploads": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "used_bytes": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used_bytes",
+          "limit_bytes",
+          "uploads",
+          "uploaded_today",
+          "downloaded_today",
+          "policy"
+        ],
+        "type": "object"
+      },
+      "AudiopluginABI": {
+        "properties": {
+          "create": {
+            "type": "string"
+          },
+          "frame_samples": {
+            "type": "integer"
+          },
+          "initialize": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "process": {
+            "type": "string"
+          },
+          "process_controls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reset": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "create",
+          "input",
+          "output",
+          "process",
+          "frame_samples"
+        ],
+        "type": "object"
+      },
+      "AudiopluginDiagnostic": {
+        "properties": {
+          "export": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "export"
+        ],
+        "type": "object"
+      },
+      "AudiopluginField": {
+        "properties": {
+          "default": {
+            "format": "double",
+            "type": "number"
+          },
+          "export": {
+            "type": "string"
+          },
+          "help": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "format": "double",
+            "type": "number"
+          },
+          "min": {
+            "format": "double",
+            "type": "number"
+          },
+          "scale": {
+            "format": "double",
+            "type": "number"
+          },
+          "step": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type",
+          "default",
+          "min",
+          "max",
+          "step",
+          "scale"
+        ],
+        "type": "object"
+      },
+      "AudiopluginFile": {
+        "properties": {
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "bytes",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "AudiopluginLegacyPreferences": {
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "variant_key": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AudiopluginManifest": {
+        "properties": {
+          "abi": {
+            "$ref": "#/components/schemas/AudiopluginABI"
+          },
+          "default_variant": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/AudiopluginDiagnostic"
+            },
+            "type": "array"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/AudiopluginField"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "legacy_preferences": {
+            "$ref": "#/components/schemas/AudiopluginLegacyPreferences"
+          },
+          "name": {
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/AudiopluginVariant"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "id",
+          "name",
+          "description",
+          "default_variant",
+          "abi",
+          "variants",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "AudiopluginPlugin": {
+        "properties": {
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/AudiopluginFile"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/AudiopluginManifest"
+          }
+        },
+        "required": [
+          "manifest",
+          "digest",
+          "bytes",
+          "files"
+        ],
+        "type": "object"
+      },
+      "AudiopluginPreferences": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "variant": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "variant",
+          "values"
+        ],
+        "type": "object"
+      },
+      "AudiopluginRepositoryInstall": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "commit",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "AudiopluginVariant": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "file"
+        ],
+        "type": "object"
+      },
+      "BlobstoreConfiguration": {
+        "properties": {
+          "bucket": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "endpoint": {
+            "description": "Empty uses AWS S3. Custom endpoints may use HTTP for trusted LAN services.",
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "local",
+              "s3"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "path_style": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "region": {
+            "maxLength": 80,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "path_style"
+        ],
+        "type": "object"
+      },
+      "BlobstoreCredentials": {
+        "properties": {
+          "access_key": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "secret_key": {
+            "format": "password",
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "session_token": {
+            "format": "password",
+            "maxLength": 8192,
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_key",
+          "secret_key"
+        ],
+        "type": "object"
+      },
+      "BlobstoreProvider": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "attachments": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/BlobstoreConfiguration"
+          },
+          "has_credentials": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "configuration",
+          "active",
+          "has_credentials",
+          "attachments",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "BlobstoreRegisterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "$ref": "#/components/schemas/BlobstoreConfiguration"
+          },
+          "credentials": {
+            "$ref": "#/components/schemas/BlobstoreCredentials"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "configuration"
+        ],
+        "type": "object"
+      },
+      "ChatConversation": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ChatDMCryptoBundle": {
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/ChatDMDevice"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "members": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatDMKeyPackage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "members",
+          "devices",
+          "packages"
+        ],
+        "type": "object"
+      },
+      "ChatDMCryptoCommit": {
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "commit": {
+            "format": "base64",
+            "type": "string"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "expected_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "welcome": {
+            "format": "base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "request_id",
+          "actor",
+          "commit",
+          "devices",
+          "packages"
+        ],
+        "type": "object"
+      },
+      "ChatDMCryptoEvent": {
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "commit": {
+            "format": "base64",
+            "type": "string"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "welcome": {
+            "format": "base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "request_id",
+          "actor",
+          "commit",
+          "devices"
+        ],
+        "type": "object"
+      },
+      "ChatDMCryptoEvents": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ChatDMCryptoEvent"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "type": "object"
+      },
+      "ChatDMDevice": {
+        "properties": {
+          "credential": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "public_key": {
+            "format": "base64",
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "public_key",
+          "credential",
+          "revoked"
+        ],
+        "type": "object"
+      },
+      "ChatDMKeyPackage": {
+        "properties": {
+          "data": {
+            "format": "base64",
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "device_id",
+          "data"
+        ],
+        "type": "object"
+      },
+      "ChatDMKeyPackages": {
+        "properties": {
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatDMKeyPackage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "packages"
+        ],
+        "type": "object"
+      },
+      "ChatEvent": {
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "data": {},
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "conversation_id",
+          "data"
+        ],
+        "type": "object"
+      },
+      "ChatHistory": {
+        "properties": {
+          "event_cursor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "last_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "pruned_through": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "messages",
+          "pruned_through",
+          "last_seq",
+          "event_cursor",
+          "gap"
+        ],
+        "type": "object"
+      },
+      "ChatMessage": {
+        "properties": {
+          "attachment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "author_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "edited_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "mention_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "seq": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "conversation_id",
+          "author_id",
+          "seq",
+          "body",
+          "attachment_ids",
+          "created_at",
+          "deleted",
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "ChatReadPage": {
+        "properties": {
+          "next": {
+            "type": "string"
+          },
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/ChatReadState"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "states"
+        ],
+        "type": "object"
+      },
+      "ChatReadState": {
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "event_cursor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mention_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "read_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "unread_count": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "conversation_id",
+          "read_seq",
+          "last_seq",
+          "unread_count",
+          "mention_count",
+          "event_cursor"
+        ],
+        "type": "object"
+      },
+      "ChatRegisterDMDevice": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "public_key": {
+            "format": "base64",
+            "type": "string"
+          },
+          "signature": {
+            "format": "base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "public_key",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "ConfigDMPolicy": {
+        "properties": {
+          "download_bytes_per_day": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_retention_days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "images_enabled": {
+            "type": "boolean"
+          },
+          "storage_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text_retention_days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "upload_bytes_per_day": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "user_storage_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "images_enabled",
+          "image_max_bytes",
+          "user_storage_bytes",
+          "storage_bytes",
+          "text_max_bytes",
+          "text_retention_days",
+          "image_retention_days",
+          "upload_bytes_per_day",
+          "download_bytes_per_day"
+        ],
+        "type": "object"
+      },
+      "ConfigICEServer": {
+        "properties": {
+          "credential": {
+            "type": "string"
+          },
+          "urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "urls"
+        ],
+        "type": "object"
+      },
+      "ConfigPolicy": {
+        "properties": {
+          "attachment_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "attachment_retention_days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dm": {
+            "$ref": "#/components/schemas/ConfigDMPolicy"
+          },
+          "image_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text_retention_days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "video_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "text_max_bytes",
+          "text_retention_days",
+          "image_max_bytes",
+          "video_max_bytes",
+          "attachment_max_bytes",
+          "attachment_retention_days"
+        ],
+        "type": "object"
+      },
+      "ConfigRuntimeSettings": {
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/ConfigPolicy"
+          },
+          "media_max_peers": {
+            "maximum": 4096,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "media_room_limit": {
+            "maximum": 64,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "registration_enabled": {
+            "type": "boolean"
+          },
+          "session_days": {
+            "format": "int64",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limits",
+          "media_max_peers",
+          "media_room_limit",
+          "session_days",
+          "registration_enabled"
+        ],
+        "type": "object"
+      },
+      "EmbedsPreview": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "image": {
+            "type": "boolean"
+          },
+          "image_alt": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "site_name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "youtube_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "url",
+          "kind",
+          "image"
+        ],
+        "type": "object"
+      },
+      "HttpapiActivateStorageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "provider_id": {
+            "description": "Provider UUID, or an empty string to use the built-in local storage.",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "provider_id"
+        ],
+        "type": "object"
+      },
+      "HttpapiAppealsResponse": {
+        "properties": {
+          "appeals": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityAppeal"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "appeals"
+        ],
+        "type": "object"
+      },
+      "HttpapiArtResponse": {
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "HttpapiAssignRolesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "role_ids": {
+            "description": "Complete replacement; an empty array removes assigned nondefault roles.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "role_ids"
+        ],
+        "type": "object"
+      },
+      "HttpapiAudioPluginsResponse": {
+        "properties": {
+          "default": {
+            "$ref": "#/components/schemas/AudiopluginPreferences"
+          },
+          "max_package_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/AudiopluginPlugin"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "plugins",
+          "default",
+          "max_package_bytes"
+        ],
+        "type": "object"
+      },
+      "HttpapiAuditResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityAuditEntry"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "HttpapiAuthenticationInfo": {
+        "properties": {
+          "registration": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "session_days": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scheme",
+          "registration",
+          "session_days"
+        ],
+        "type": "object"
+      },
+      "HttpapiBanAppealRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "appeal_ticket": {
+            "type": "string"
+          },
+          "body": {
+            "description": "Plain text only, no URLs or attachments. One submission per ban per rolling 30 days.",
+            "maxLength": 1000,
+            "minLength": 10,
+            "type": "string"
+          }
+        },
+        "required": [
+          "appeal_ticket",
+          "body"
+        ],
+        "type": "object"
+      },
+      "HttpapiBanNetworkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "network": {
+            "description": "IPv4 or IPv6 address or CIDR range; normalized by the service.",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "network",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "HttpapiBanTicketRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "appeal_ticket": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "appeal_ticket"
+        ],
+        "type": "object"
+      },
+      "HttpapiBansResponse": {
+        "properties": {
+          "bans": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityBan"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bans"
+        ],
+        "type": "object"
+      },
+      "HttpapiCategoriesResponse": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityCategory"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "categories"
+        ],
+        "type": "object"
+      },
+      "HttpapiChangePasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "format": "password",
+            "type": "string"
+          },
+          "new_password": {
+            "description": "At most 1024 UTF-8 bytes.",
+            "format": "password",
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "type": "object"
+      },
+      "HttpapiChannelsResponse": {
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityChannel"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "channels"
+        ],
+        "type": "object"
+      },
+      "HttpapiClientInstallers": {
+        "properties": {
+          "available": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/HttpapiClientUpdateEnvelope"
+          }
+        },
+        "required": [
+          "manifest",
+          "available"
+        ],
+        "type": "object"
+      },
+      "HttpapiClientUpdateEnvelope": {
+        "properties": {
+          "payload": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "integer"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "payload",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "HttpapiClientUpdateSource": {
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          },
+          "installers": {
+            "type": "boolean"
+          },
+          "manifest_url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "HttpapiConfigurationResponse": {
+        "properties": {
+          "attachment_reserved_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ConfigRuntimeSettings"
+          }
+        },
+        "required": [
+          "revision",
+          "settings",
+          "attachment_reserved_bytes"
+        ],
+        "type": "object"
+      },
+      "HttpapiConversationsResponse": {
+        "properties": {
+          "conversations": {
+            "items": {
+              "$ref": "#/components/schemas/ChatConversation"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "conversations"
+        ],
+        "type": "object"
+      },
+      "HttpapiCreateDMRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "members": {
+            "description": "Other participant UUIDs; the current user is added automatically.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 15,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "type": "object"
+      },
+      "HttpapiCreateInviteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in_hours": {
+            "maximum": 720,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "uses": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "uses",
+          "expires_in_hours"
+        ],
+        "type": "object"
+      },
+      "HttpapiCreateMessageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "body": {
+            "description": "Nonblank body or at least one attachment. UTF-8 bytes are bounded by installation policy (at most 64 KiB).",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "HttpapiCredentialsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "device_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "invitation": {
+            "description": "Required for registration; unused on login.",
+            "type": "string"
+          },
+          "password": {
+            "description": "Registration requires at least 8 characters; at most 1024 UTF-8 bytes.",
+            "format": "password",
+            "type": "string"
+          },
+          "remember": {
+            "description": "Keep this device signed in until revocation, with no calendar expiry. Defaults to false.",
+            "type": "boolean"
+          },
+          "username": {
+            "pattern": "^[a-zA-Z0-9_]{3,32}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password",
+          "device_name"
+        ],
+        "type": "object"
+      },
+      "HttpapiDMPurgeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "before": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "before"
+        ],
+        "type": "object"
+      },
+      "HttpapiDisableMemberRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "disabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "disabled"
+        ],
+        "type": "object"
+      },
+      "HttpapiEditMessageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "HttpapiEmbedsResponse": {
+        "properties": {
+          "embeds": {
+            "items": {
+              "$ref": "#/components/schemas/EmbedsPreview"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "embeds"
+        ],
+        "type": "object"
+      },
+      "HttpapiEmojisResponse": {
+        "properties": {
+          "emojis": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityEmoji"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "emojis"
+        ],
+        "type": "object"
+      },
+      "HttpapiErrorResponse": {
+        "properties": {
+          "appeal_ticket": {
+            "type": "string"
+          },
+          "ban_type": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "HttpapiEventCommand": {
+        "properties": {
+          "admission_id": {
+            "type": "string"
+          },
+          "after_event": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/V4ICECandidateInit"
+          },
+          "conversations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "peer_id": {
+            "type": "string"
+          },
+          "publisher_id": {
+            "type": "string"
+          },
+          "sdp": {
+            "$ref": "#/components/schemas/V4SessionDescription"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VoiceState"
+          },
+          "token": {
+            "type": "string"
+          },
+          "tracks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "HttpapiIceResponse": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ice_servers": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigICEServer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ice_transport_policy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ice_servers",
+          "expires_at",
+          "ice_transport_policy"
+        ],
+        "type": "object"
+      },
+      "HttpapiInstanceResponse": {
+        "properties": {
+          "accent_color": {
+            "type": "string"
+          },
+          "api_version": {
+            "type": "string"
+          },
+          "authentication": {
+            "$ref": "#/components/schemas/HttpapiAuthenticationInfo"
+          },
+          "banner_version": {
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "client_updates": {
+            "$ref": "#/components/schemas/HttpapiClientUpdateSource"
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon_version": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/ConfigPolicy"
+          },
+          "media_transport": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "public_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id",
+          "name",
+          "public_url",
+          "api_version",
+          "capabilities",
+          "media_transport",
+          "authentication",
+          "limits"
+        ],
+        "type": "object"
+      },
+      "HttpapiInvitesResponse": {
+        "properties": {
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityInvite"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "invites"
+        ],
+        "type": "object"
+      },
+      "HttpapiMarkReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "HttpapiMediaAuthenticateCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "participant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "authenticate"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "token",
+          "participant_id"
+        ],
+        "type": "object"
+      },
+      "HttpapiMediaCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "publisher_id": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceEncodedTrack"
+            },
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "configure",
+              "keyframe"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "HttpapiMemberIPsResponse": {
+        "properties": {
+          "ips": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityMemberIP"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ips"
+        ],
+        "type": "object"
+      },
+      "HttpapiMembersResponse": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityMember"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "type": "object"
+      },
+      "HttpapiMenuCommand": {
+        "properties": {
+          "confirmation": {
+            "type": "string"
+          },
+          "confirmation_label": {
+            "type": "string"
+          },
+          "confirmation_value": {
+            "type": "string"
+          },
+          "dangerous": {
+            "type": "boolean"
+          },
+          "method": {
+            "enum": [
+              "POST",
+              "PUT",
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "submit_label": {
+            "type": "string"
+          },
+          "success_message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "confirmation"
+        ],
+        "type": "object"
+      },
+      "HttpapiMenuField": {
+        "properties": {
+          "help": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "max_length": {
+            "type": "integer"
+          },
+          "min": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/HttpapiMenuOption"
+            },
+            "type": "array"
+          },
+          "path": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "scale": {
+            "format": "double",
+            "type": "number"
+          },
+          "step": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "type": {
+            "enum": [
+              "text",
+              "textarea",
+              "password",
+              "number",
+              "toggle",
+              "select"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "HttpapiMenuForm": {
+        "properties": {
+          "carry_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/HttpapiMenuField"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "load_path": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "PUT",
+              "POST"
+            ],
+            "type": "string"
+          },
+          "save_path": {
+            "type": "string"
+          },
+          "submit_label": {
+            "type": "string"
+          },
+          "success_message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "load_path",
+          "save_path",
+          "method",
+          "submit_label",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "HttpapiMenuManifest": {
+        "properties": {
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/HttpapiMenuPage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "pages"
+        ],
+        "type": "object"
+      },
+      "HttpapiMenuOption": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "type": "object"
+      },
+      "HttpapiMenuPage": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/HttpapiMenuCommand"
+          },
+          "builtin": {
+            "type": "string"
+          },
+          "context_label": {
+            "type": "string"
+          },
+          "form": {
+            "$ref": "#/components/schemas/HttpapiMenuForm"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
+      "HttpapiModerateMemberRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "kick",
+              "ban",
+              "restore",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "HttpapiModerationReasonRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "HttpapiOverridesResponse": {
+        "properties": {
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityOverride"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "overrides"
+        ],
+        "type": "object"
+      },
+      "HttpapiParticipantsResponse": {
+        "properties": {
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceSnapshot"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "participants"
+        ],
+        "type": "object"
+      },
+      "HttpapiRememberSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "remember": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "remember"
+        ],
+        "type": "object"
+      },
+      "HttpapiResetPasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "new_password": {
+            "description": "At most 1024 UTF-8 bytes.",
+            "format": "password",
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_password"
+        ],
+        "type": "object"
+      },
+      "HttpapiRestoreSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "device_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_name"
+        ],
+        "type": "object"
+      },
+      "HttpapiRolesResponse": {
+        "properties": {
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityRole"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "roles"
+        ],
+        "type": "object"
+      },
+      "HttpapiSaveCategoryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "HttpapiSaveChannelRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "category_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "icon": {
+            "description": "Built-in SVG icon key; empty restores the default for the channel kind. Omission preserves the current icon.",
+            "enum": [
+              "",
+              "hash",
+              "headphones",
+              "message-circle",
+              "megaphone",
+              "volume-2",
+              "mic",
+              "music",
+              "radio",
+              "gamepad-2",
+              "monitor",
+              "video",
+              "camera",
+              "image",
+              "film",
+              "code",
+              "terminal",
+              "book-open",
+              "graduation-cap",
+              "coffee",
+              "users",
+              "calendar",
+              "star",
+              "heart",
+              "shield",
+              "wrench"
+            ],
+            "maxLength": 32,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "text",
+              "voice"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "topic": {
+            "maxLength": 512,
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "HttpapiSaveCommunityRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "accent_color": {
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "accent_color"
+        ],
+        "type": "object"
+      },
+      "HttpapiSaveConfigurationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "minimum": 0,
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ConfigRuntimeSettings"
+          }
+        },
+        "required": [
+          "revision",
+          "settings"
+        ],
+        "type": "object"
+      },
+      "HttpapiSaveRoleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_separately": {
+            "description": "Show online members separately in the member list. Defaults to false for new roles; omission preserves existing settings.",
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "permissions": {
+            "maximum": 32767,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "position": {
+            "description": "Role rank; default role is zero. Delegates can only manage lower-ranked roles and members.",
+            "maximum": 1000,
+            "minimum": 0,
+            "type": [
+              "null",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "permissions"
+        ],
+        "type": "object"
+      },
+      "HttpapiSessionsResponse": {
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/IdentitySession"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "type": "object"
+      },
+      "HttpapiSetPermissionsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allow": {
+            "maximum": 7,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deny": {
+            "maximum": 7,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "allow",
+          "deny"
+        ],
+        "type": "object"
+      },
+      "HttpapiStatsResponse": {
+        "properties": {
+          "cloudflare_turn": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "events": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "media": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ConfigPolicy"
+          },
+          "pool": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "relay": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "storage": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "storage_lock": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "storage",
+          "policy",
+          "pool",
+          "storage_lock",
+          "events",
+          "media",
+          "relay",
+          "cloudflare_turn"
+        ],
+        "type": "object"
+      },
+      "HttpapiStatusResponse": {
+        "properties": {
+          "check": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "HttpapiStorageProvidersResponse": {
+        "properties": {
+          "default_active": {
+            "type": "boolean"
+          },
+          "default_attachments": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "default_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/BlobstoreProvider"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "providers",
+          "default_active",
+          "default_attachments",
+          "default_bytes"
+        ],
+        "type": "object"
+      },
+      "HttpapiTemporaryPasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "HttpapiUnavailableResponse": {
+        "properties": {
+          "dependency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "dependency"
+        ],
+        "type": "object"
+      },
+      "HttpapiUsersResponse": {
+        "properties": {
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityUser"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "users"
+        ],
+        "type": "object"
+      },
+      "IdentityAppeal": {
+        "properties": {
+          "ban_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "ban_id",
+          "body",
+          "created_at",
+          "reviewed_at"
+        ],
+        "type": "object"
+      },
+      "IdentityAuditEntry": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ip": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "actor_id",
+          "target_id",
+          "action",
+          "reason",
+          "ip"
+        ],
+        "type": "object"
+      },
+      "IdentityBan": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "network": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "user_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "network",
+          "reason",
+          "created_by",
+          "created_at",
+          "revoked_at"
+        ],
+        "type": "object"
+      },
+      "IdentityBanStatus": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "ban_type": {
+            "type": "string"
+          },
+          "next_appeal_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ban_type",
+          "reason",
+          "active",
+          "next_appeal_at"
+        ],
+        "type": "object"
+      },
+      "IdentityCategory": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "IdentityChannel": {
+        "properties": {
+          "category_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "icon": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "topic": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "category_id",
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "IdentityCommunitySettings": {
+        "properties": {
+          "accent_color": {
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "type": "string"
+          },
+          "banner_version": {
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "icon_version": {
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "accent_color"
+        ],
+        "type": "object"
+      },
+      "IdentityDisplayRole": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "position"
+        ],
+        "type": "object"
+      },
+      "IdentityEmoji": {
+        "properties": {
+          "animated": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "animated"
+        ],
+        "type": "object"
+      },
+      "IdentityInvite": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "remaining_uses": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_by",
+          "remaining_uses",
+          "created_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "IdentityLogin": {
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "password_change_required": {
+            "description": "Temporary password session: may only change the password or log out; expires after 15 minutes even when remember is true.",
+            "type": "boolean"
+          },
+          "session": {
+            "$ref": "#/components/schemas/IdentitySession"
+          },
+          "token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/IdentityUser"
+          }
+        },
+        "required": [
+          "instance_id",
+          "user",
+          "session",
+          "token",
+          "token_type"
+        ],
+        "type": "object"
+      },
+      "IdentityMember": {
+        "properties": {
+          "accent_color": {
+            "type": "string"
+          },
+          "avatar_version": {
+            "type": "string"
+          },
+          "banned": {
+            "type": "boolean"
+          },
+          "bio": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "display_role": {
+            "$ref": "#/components/schemas/IdentityDisplayRole",
+            "description": "Highest-ranked role enabled for member-list sections; display metadata only. Absent when no role is enabled."
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_owner": {
+            "type": "boolean"
+          },
+          "kicked": {
+            "type": "boolean"
+          },
+          "role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "role_position": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "is_owner",
+          "created_at",
+          "role_ids",
+          "disabled",
+          "kicked",
+          "deleted",
+          "banned",
+          "role_position"
+        ],
+        "type": "object"
+      },
+      "IdentityMemberIP": {
+        "properties": {
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ip",
+          "first_seen",
+          "last_seen"
+        ],
+        "type": "object"
+      },
+      "IdentityOverride": {
+        "properties": {
+          "allow": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "deny": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "role_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id",
+          "allow",
+          "deny"
+        ],
+        "type": "object"
+      },
+      "IdentityPrincipal": {
+        "properties": {
+          "permissions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "role_position": {
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/IdentityUser"
+          }
+        },
+        "required": [
+          "user",
+          "session_id",
+          "permissions",
+          "role_position"
+        ],
+        "type": "object"
+      },
+      "IdentityProfileSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "accent_color": {
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "type": "string"
+          },
+          "bio": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "display_name": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "accent_color"
+        ],
+        "type": "object"
+      },
+      "IdentityRole": {
+        "properties": {
+          "display_separately": {
+            "description": "Show online members in a separate member-list section. Disabled by default.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "position": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "permissions",
+          "is_default",
+          "position",
+          "display_separately"
+        ],
+        "type": "object"
+      },
+      "IdentityRuntimeConfiguration": {
+        "properties": {
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ConfigRuntimeSettings"
+          }
+        },
+        "required": [
+          "revision",
+          "settings"
+        ],
+        "type": "object"
+      },
+      "IdentitySession": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "device_name": {
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Null for a remembered device; otherwise the session's expiry in UTC. All sessions can be revoked.",
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "device_name",
+          "created_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "IdentityTemporaryPassword": {
+        "properties": {
+          "temporary_password": {
+            "description": "Shown once. Share privately; the member must replace it before server access.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "temporary_password"
+        ],
+        "type": "object"
+      },
+      "IdentityUser": {
+        "properties": {
+          "accent_color": {
+            "type": "string"
+          },
+          "avatar_version": {
+            "type": "string"
+          },
+          "bio": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "display_role": {
+            "$ref": "#/components/schemas/IdentityDisplayRole",
+            "description": "Highest-ranked role enabled for member-list sections; display metadata only. Absent when no role is enabled."
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_owner": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "is_owner",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "V4ICECandidateInit": {
+        "properties": {
+          "candidate": {
+            "type": "string"
+          },
+          "sdpMLineIndex": {
+            "minimum": 0,
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "sdpMid": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "usernameFragment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "V4RTPCodecCapability": {
+        "properties": {
+          "Channels": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ClockRate": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "MimeType": {
+            "type": "string"
+          },
+          "RTCPFeedback": {
+            "items": {
+              "properties": {
+                "Parameter": {
+                  "type": "string"
+                },
+                "Type": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "SDPFmtpLine": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Channels",
+          "ClockRate",
+          "MimeType",
+          "RTCPFeedback",
+          "SDPFmtpLine"
+        ],
+        "type": "object"
+      },
+      "V4SDPType": {
+        "enum": [
+          "offer",
+          "answer",
+          "pranswer",
+          "rollback"
+        ],
+        "type": "string"
+      },
+      "V4SessionDescription": {
+        "properties": {
+          "sdp": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/V4SDPType"
+          }
+        },
+        "type": "object"
+      },
+      "VoiceAdmission": {
+        "properties": {
+          "admission_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ice_expires_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ice_servers": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigICEServer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ice_transport_policy": {
+            "type": "string"
+          },
+          "media_path": {
+            "type": "string"
+          },
+          "room_id": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "admission_id",
+          "room_id",
+          "expires_at",
+          "ice_servers",
+          "transport"
+        ],
+        "type": "object"
+      },
+      "VoiceEncodedTrack": {
+        "properties": {
+          "channels": {
+            "type": "integer"
+          },
+          "codec": {
+            "type": "string"
+          },
+          "description": {
+            "format": "base64",
+            "type": "string"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sample_rate": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "VoicePresenceMember": {
+        "properties": {
+          "joined_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "participant_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VoiceState"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "participant_id",
+          "user_id",
+          "joined_at",
+          "state"
+        ],
+        "type": "object"
+      },
+      "VoiceSnapshot": {
+        "properties": {
+          "encoded_tracks": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceEncodedTrack"
+            },
+            "type": "array"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "participant_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VoiceState"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceTrack"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "participant_id",
+          "user_id",
+          "joined_at",
+          "state",
+          "tracks"
+        ],
+        "type": "object"
+      },
+      "VoiceState": {
+        "properties": {
+          "camera_off": {
+            "type": "boolean"
+          },
+          "deafened": {
+            "type": "boolean"
+          },
+          "muted": {
+            "type": "boolean"
+          },
+          "screen_off": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "muted",
+          "deafened",
+          "camera_off",
+          "screen_off"
+        ],
+        "type": "object"
+      },
+      "VoiceTrack": {
+        "properties": {
+          "codec": {
+            "$ref": "#/components/schemas/V4RTPCodecCapability"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "track_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "track_id",
+          "codec"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "session": {
+        "description": "Opaque device-session token returned by login or registration; not a JWT.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "events": {
+    "account_feed": "Use events.watch when events.account_feed is advertised. Persist events.checkpoint only after applying preceding events. Initial/reconnect read positions come from paginated GET /api/v1/read-state. read.state contains changed readState objects; compare event_cursor and read_seq to reject stale snapshots. directory.changed invalidates directory/permission/emoji metadata, coalesce refreshes; read.sync requests a fresh read-state snapshot. These state hints are ephemeral and reconstructible, while message events are replayable. Advance read positions only through the highest message actually displayed in a focused conversation. Replays restore counts silently, not old notification sounds.",
+    "client_messages": {
+      "authenticate": {
+        "optional": [
+          "after_event"
+        ],
+        "reply": "ready",
+        "required": [
+          "type",
+          "token"
+        ]
+      },
+      "events.watch": {
+        "description": "Watch every currently accessible conversation, including new channels and DMs, without a subscription-count limit. Replaces explicit subscriptions. Replay durable message/history events from after_event; omitted cursor starts at the connection head. Committed PostgreSQL notifications wake bounded account workers; idle fallback runs every five seconds.",
+        "optional": [
+          "after_event"
+        ],
+        "reply": "events.watching",
+        "required": [
+          "type"
+        ]
+      },
+      "media.ice": {
+        "description": "Use the current peer_id from media.answer; stale peer generations are rejected.",
+        "reply": "media.ice.accepted",
+        "required": [
+          "type",
+          "peer_id",
+          "candidate"
+        ]
+      },
+      "media.join": {
+        "description": "Consume a device-scoped single-use admission within one minute. At most one room participant per event socket.",
+        "reply": "media.joined",
+        "required": [
+          "type",
+          "admission_id"
+        ]
+      },
+      "media.leave": {
+        "reply": "media.left",
+        "required": [
+          "type"
+        ]
+      },
+      "media.publish": {
+        "description": "WebRTC only. SDP offer and purpose-to-track-ID map. Purposes: audio (microphone), camera, screen, camera_audio, screen_audio. Replaces prior publishing peer and invalidates its receiver subscriptions.",
+        "reply": "media.answer",
+        "required": [
+          "type",
+          "sdp",
+          "tracks"
+        ]
+      },
+      "media.state": {
+        "description": "Replace all muted, deafened, camera_off and screen_off booleans. muted affects microphone only; deafened blocks all incoming audio. camera_off and screen_off block both video and associated source audio.",
+        "reply": "media.state.accepted",
+        "required": [
+          "type",
+          "state"
+        ]
+      },
+      "media.subscribe": {
+        "description": "WebRTC only. Receiver offer must support publisher codecs. Only publishers in the same room are accessible.",
+        "reply": "media.answer",
+        "required": [
+          "type",
+          "publisher_id",
+          "sdp"
+        ]
+      },
+      "presence.watch": {
+        "description": "When presence.online is advertised, enable (default) or disable online-user snapshots. Online means at least one authenticated event socket on this installation, including background devices; it does not imply voice participation. Initial subscribe/resume sends a full presence.snapshot; subsequent snapshots are sent only when users first connect or finally disconnect, coalesced by the existing gateway worker. No polling or durable replay. Clear client status to unknown when disconnected.",
+        "optional": [
+          "enabled"
+        ],
+        "reply": "presence.watching",
+        "required": [
+          "type"
+        ]
+      },
+      "subscribe": {
+        "description": "Replace up to 64 authorized conversation subscriptions. Use HTTP history event_cursor for synchronization.",
+        "optional": [
+          "after_event"
+        ],
+        "reply": "subscribed",
+        "required": [
+          "type",
+          "conversations"
+        ]
+      },
+      "voice.watch": {
+        "description": "Enable (default) or disable changed voice.presence snapshots. Only watch from a foreground UI that displays rosters. Presence is ephemeral; resume sends a fresh snapshot. Each member includes joined_at, an RFC3339 UTC timestamp fixed at admission to the room. Display elapsed time locally; do not poll for timers.",
+        "optional": [
+          "enabled"
+        ],
+        "reply": "voice.watching",
+        "required": [
+          "type"
+        ]
+      }
+    },
+    "command_schema": {
+      "$ref": "#/components/schemas/HttpapiEventCommand"
+    },
+    "durable_events": {
+      "data": "Message object for created/updated/deleted; {pruned_through: sequence} for history.pruned. For dm.keys_changed the data is {revision}; for dm.devices_changed it is {user}. Refresh the DM encryption endpoints without incrementing unread counts. Monotonic global event IDs can skip inaccessible events. A gap requires HTTP history refresh.",
+      "schema": {
+        "$ref": "#/components/schemas/ChatEvent"
+      },
+      "types": [
+        "message.created",
+        "message.updated",
+        "message.deleted",
+        "history.pruned",
+        "dm.keys_changed",
+        "dm.devices_changed"
+      ]
+    },
+    "max_input_bytes": 131072,
+    "path": "/api/v1/events",
+    "reconnect": "On sync.required in account-feed mode refresh the directory and read-state snapshot, load the visible conversation history, then events.watch from the supplied event_cursor. Legacy explicit subscriptions refresh their HTTP histories and resubscribe from the earliest returned event_cursor. On media.reconnect_required obtain a new admission, leave/rejoin, republish and recreate subscriptions before expires_at; credentials are separate from session validity. Serialise signaling commands and process asynchronous events while awaiting replies.",
+    "server_messages": {
+      "directory.changed": [
+        "type"
+      ],
+      "error": [
+        "type",
+        "error"
+      ],
+      "events.checkpoint": [
+        "type",
+        "event_cursor"
+      ],
+      "events.watching": [
+        "type",
+        "event_cursor"
+      ],
+      "media.answer": [
+        "type",
+        "peer_id",
+        "sdp",
+        "publisher_id (receiver answers only)"
+      ],
+      "media.ice.accepted": [
+        "type"
+      ],
+      "media.joined": [
+        "type",
+        "participant"
+      ],
+      "media.left": [
+        "type"
+      ],
+      "media.participant.joined": [
+        "type",
+        "room_id",
+        "participant"
+      ],
+      "media.participant.left": [
+        "type",
+        "participant_id"
+      ],
+      "media.participant.state": [
+        "type",
+        "participant"
+      ],
+      "media.reconnect_required": [
+        "type",
+        "reason",
+        "expires_at"
+      ],
+      "media.revoked": [
+        "type"
+      ],
+      "media.state.accepted": [
+        "type"
+      ],
+      "media.tracks": [
+        "type",
+        "participant"
+      ],
+      "presence.snapshot": [
+        "type",
+        "online_user_ids (complete unique array, at most 512 user IDs; absent users are offline)"
+      ],
+      "presence.watching": [
+        "type"
+      ],
+      "read.state": [
+        "type",
+        "states"
+      ],
+      "read.sync": [
+        "type"
+      ],
+      "ready": [
+        "type",
+        "instance_id",
+        "event_cursor"
+      ],
+      "subscribed": [
+        "type",
+        "conversations"
+      ],
+      "subscription.revoked": [
+        "type",
+        "conversation_id"
+      ],
+      "sync.required": [
+        "type",
+        "event_cursor"
+      ],
+      "voice.presence": [
+        "type",
+        "rooms"
+      ],
+      "voice.watching": [
+        "type"
+      ]
+    }
+  },
+  "format": "chatxo-websocket-v1",
+  "media": {
+    "authenticate_schema": {
+      "$ref": "#/components/schemas/HttpapiMediaAuthenticateCommand"
+    },
+    "binary": {
+      "byte_order": "big-endian",
+      "fields": [
+        {
+          "bytes": 1,
+          "name": "version",
+          "offset": 0,
+          "value": 1
+        },
+        {
+          "bytes": 1,
+          "name": "purpose",
+          "offset": 1,
+          "values": {
+            "audio": 0,
+            "camera": 1,
+            "camera_audio": 3,
+            "screen": 2,
+            "screen_audio": 4
+          }
+        },
+        {
+          "bytes": 1,
+          "name": "flags",
+          "offset": 2,
+          "values": {
+            "delta": 0,
+            "key": 1
+          }
+        },
+        {
+          "bytes": 1,
+          "name": "reserved",
+          "offset": 3,
+          "value": 0
+        },
+        {
+          "bytes": 4,
+          "description": "Server-issued track revision",
+          "name": "revision",
+          "offset": 4
+        },
+        {
+          "bytes": 8,
+          "maximum": 9007199254740991,
+          "name": "timestamp_us",
+          "offset": 8
+        },
+        {
+          "bytes": 4,
+          "maximum": 10000000,
+          "name": "duration_us",
+          "offset": 16
+        },
+        {
+          "bytes": 4,
+          "description": "Per-track contiguous sequence; uint32 wrap allowed. First value is arbitrary.",
+          "name": "sequence",
+          "offset": 20
+        },
+        {
+          "description": "One nonempty encoded elementary chunk; no container, RTP or SDP.",
+          "name": "payload",
+          "offset": 24
+        }
+      ],
+      "input_header_bytes": 24,
+      "max_audio_input_bytes": 65536,
+      "max_input_bytes": 524288,
+      "output_header_bytes": 40,
+      "output_prefix": "16 raw UUID bytes identifying the authenticated publisher; followed by the unchanged input header and encoded chunk"
+    },
+    "client_messages": {
+      "authenticate": {
+        "description": "participant_id must belong to this device session's joined event socket. One media socket per participant.",
+        "reply": "ready",
+        "required": [
+          "type",
+          "token",
+          "participant_id"
+        ]
+      },
+      "configure": {
+        "description": "Replace up to five streams: microphone audio, camera video, screen video, camera audio and screen audio. Empty tracks stops publication. Server assigns a new revision; use it for all chunks. description is base64 decoder configuration. Codec is an ASCII WebCodecs identifier, not a fixed whitelist.",
+        "reply": "tracks",
+        "required": [
+          "type",
+          "tracks"
+        ]
+      },
+      "keyframe": {
+        "description": "Ask a camera/screen publisher for a keyframe. Server coalesces requests to at most one per second per source track.",
+        "required": [
+          "type",
+          "publisher_id",
+          "purpose"
+        ]
+      }
+    },
+    "command_schema": {
+      "$ref": "#/components/schemas/HttpapiMediaCommand"
+    },
+    "enabled_when": "Admission transport is websocket",
+    "limits": {
+      "configure_per_second": 1,
+      "inbound_bytes_per_second": 8388608,
+      "inbound_frames_per_second": 600,
+      "outbound_bytes": 2097152,
+      "outbound_frames": 64
+    },
+    "path": "/api/v1/media",
+    "protocol": "chatxo-encoded-v1",
+    "recovery": "Late receivers wait for a video keyframe. Obey keyframe requests. On media socket loss, reattach to the still-active participant, configure again and use the new revision. When the event socket is lost, obtain a new admission and participant first. Queue overflow closes a slow receiver. Clients need bitrate/backpressure control, audio scheduling and timestamp synchronization; the server never decodes media.",
+    "server_messages": {
+      "keyframe": [
+        "type",
+        "purpose"
+      ],
+      "ready": [
+        "type",
+        "protocol"
+      ],
+      "tracks": [
+        "type",
+        "participant_id",
+        "tracks"
+      ]
+    },
+    "track_schema": {
+      "$ref": "#/components/schemas/VoiceEncodedTrack"
+    }
+  },
+  "schemas": {
+    "durableEvent": {
+      "$ref": "#/components/schemas/ChatEvent"
+    },
+    "encodedTrack": {
+      "$ref": "#/components/schemas/VoiceEncodedTrack"
+    },
+    "eventCommand": {
+      "$ref": "#/components/schemas/HttpapiEventCommand"
+    },
+    "mediaAuthenticate": {
+      "$ref": "#/components/schemas/HttpapiMediaAuthenticateCommand"
+    },
+    "mediaCommand": {
+      "$ref": "#/components/schemas/HttpapiMediaCommand"
+    },
+    "participant": {
+      "$ref": "#/components/schemas/VoiceSnapshot"
+    },
+    "presenceMember": {
+      "$ref": "#/components/schemas/VoicePresenceMember"
+    },
+    "readState": {
+      "$ref": "#/components/schemas/ChatReadState"
+    }
+  },
+  "version": 1
+}

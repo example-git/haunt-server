@@ -1,0 +1,78 @@
+name: Server with embedded web client
+on:
+  push:
+    tags: ['server-v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: client
+        run: echo "commit=$(git ls-tree HEAD client | awk '{print $3}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: example-git/haunt-client
+          ref: ${{ steps.client.outputs.commit }}
+          path: client
+          ssh-key: ${{ secrets.HAUNT_CLIENT_READ_KEY }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: npm ci && npm run build
+        working-directory: client
+      - run: go test ./internal/httpapi -run TestEmbeddedWebClient
+      - name: Build Linux binaries
+        run: |
+          mkdir -p release
+          version=0.0.0
+          if [[ "$GITHUB_REF_NAME" == server-v* ]]; then version="${GITHUB_REF_NAME#server-v}"; fi
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags webclient -trimpath -ldflags="-s -w -X main.version=$version" -o "release/haunt-server-linux-$arch" ./cmd/haunt
+          done
+          cd release
+          sha256sum haunt-server-* > SHA256SUMS
+      - name: Verify first-run wizard on the standalone binary
+        run: |
+          docker run -d --name chatxo-identity-check -p 127.0.0.1:32768:5432 \
+            -e POSTGRES_USER=haunt_wizard -e POSTGRES_PASSWORD=isolated-ci-password \
+            -e POSTGRES_DB=haunt_wizard_test_ci postgres:16-alpine
+          trap 'docker rm -f chatxo-identity-check' EXIT
+          test "$(docker inspect chatxo-identity-check --format '{{.Config.Image}}')" = postgres:16-alpine
+          test "$(docker port chatxo-identity-check 5432/tcp)" = 127.0.0.1:32768
+          for attempt in $(seq 1 60); do
+            docker exec chatxo-identity-check pg_isready -U haunt_wizard -d haunt_wizard_test_ci && break
+            sleep 1
+          done
+          HAUNT_WIZARD_TEST_DATABASE_URL='postgres://haunt_wizard:isolated-ci-password@127.0.0.1:32768/haunt_wizard_test_ci?sslmode=disable' \
+            HAUNT_WIZARD_TEST_BINARY="$PWD/release/haunt-server-linux-amd64" \
+            go test -race ./cmd/haunt -run '^TestFirstRunBinary$' -count=1 -v
+      - name: Build application update bundles
+        env:
+          RELEASE_REF: ${{ github.ref_name }}
+        run: |
+          version=0.0.0
+          if [[ "$RELEASE_REF" == server-v* ]]; then version="${RELEASE_REF#server-v}"; fi
+          python3 scripts/package-container-app.py "$version"
+          cd release
+          sha256sum haunt-server-* haunt-app-* haunt-app.json > SHA256SUMS
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes --draft
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: haunt-server
+          path: release/*
