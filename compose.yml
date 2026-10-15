@@ -1,0 +1,28 @@
+name: haunt
+services:
+  haunt:
+    image: ${HAUNT_IMAGE:-haunt:local}
+    build:
+      context: .
+      args:
+        HAUNT_VERSION: ${HAUNT_VERSION:-container}
+    env_file: ${HAUNT_ENV_FILE:-.env}
+    ports:
+      # Bundled Nginx is the client edge. The supplied Compose file publishes
+      # container TCP 80/443; the private Haunt backend on 8080 stays internal.
+      - "${HAUNT_HTTP_PORT:-80}:80/tcp"
+      - "${HAUNT_HTTPS_PORT:-443}:443/tcp"
+      - "${HAUNT_MEDIA_PORT_MIN:-50000}-${HAUNT_MEDIA_PORT_MAX:-50100}:${HAUNT_MEDIA_PORT_MIN:-50000}-${HAUNT_MEDIA_PORT_MAX:-50100}/udp"
+    volumes:
+      - haunt-data:/data
+    restart: unless-stopped
+    stop_grace_period: 300s
+    shm_size: 128m
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  haunt-data:

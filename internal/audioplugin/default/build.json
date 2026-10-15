@@ -1,0 +1,28 @@
+{
+  "upstream": {
+    "repository": "https://github.com/xiph/rnnoise",
+    "commit": "70f1d256acd4b34a572f999a05c87bf00b67730d",
+    "source_sha256": "f61ee0b3f4c4cd337303e003d333357c5eaf25ef5d75a742109ee59e9a0a3932",
+    "model_sha256": "0a8755f8e2d834eff6a54714ecc7d75f9932e845df35f8b59bc52a7cfe6e8b37",
+    "zig_version": "0.15.2"
+  },
+  "files": {
+    "standard.wasm": {
+      "bytes": 14842322,
+      "sha256": "3ccb8911cb22ce2e43ace0523b449e87d96cd21635ac7cb91e7ab100c5877aae"
+    },
+    "little.wasm": {
+      "bytes": 5773778,
+      "sha256": "9ca6065c5da90c4e19c14eea2e73f9cbdafea0aa09cd6b1e93ed91c945deeebd"
+    },
+    "manifest.json": {
+      "bytes": 1150,
+      "sha256": "9479fac46d252f5b8ac8af11fd0c21ef676345df9bd1b54fa8ea88d6242692e1"
+    },
+    "LICENSE.txt": {
+      "bytes": 29060,
+      "sha256": "6ef3519d0ae204d13deefa0ac0cec7f7feaee7d2825a17f20c8818ba1f70203b"
+    }
+  },
+  "sha256": "260368f1cda9c2970a57b85b8ee72a3df3663b6087d014784c97845b39a5dcc7"
+}

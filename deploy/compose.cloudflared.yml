@@ -1,0 +1,26 @@
+# Standalone-binary tunnel connector only. The standalone application runs on
+# the Linux host at 127.0.0.1:8080. In the prebuilt Haunt container, bundled
+# Nginx is instead exposed on mapped host TCP 80 by default.
+# This file does not create or alter a PostgreSQL service.
+name: chatxo-tunnel
+services:
+  cloudflared:
+    # Verified locally as cloudflared 2026.5.0. Override with a reviewed digest
+    # when updating; use an image available for the deployment architecture.
+    image: ${HAUNT_CLOUDFLARED_IMAGE:-cloudflare/cloudflared@sha256:59bab8d3aceec09bf6bdb07d6beca0225ca5cd7ab79436a87ea97978fe1dc4f9}
+    network_mode: host
+    user: "65532:65532"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [tunnel, --no-autoupdate, --protocol, auto, run, --token-file, /run/secrets/tunnel_token]
+    secrets: [tunnel_token]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+secrets:
+  tunnel_token:
+    file: ${CLOUDFLARED_TOKEN_FILE:?Set CLOUDFLARED_TOKEN_FILE to the host token-file path}
