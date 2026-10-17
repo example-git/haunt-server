@@ -60,7 +60,7 @@ jobs:
           exit 1
       - run: npm ci
         working-directory: client
-      - run: npm test && npm run test:version && npm run build
+      - run: npm test && npm run test:version && npm run test:browser-harness && npm run build
         working-directory: client
       - name: Check server contracts and tooling
         run: |
