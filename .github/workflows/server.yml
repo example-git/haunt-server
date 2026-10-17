@@ -6,7 +6,10 @@ on:
 permissions:
   contents: write
 jobs:
+  regression:
+    uses: ./.github/workflows/regression.yml
   build:
+    needs: regression
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -48,7 +51,7 @@ jobs:
           trap 'docker rm -f chatxo-identity-check' EXIT
           test "$(docker inspect chatxo-identity-check --format '{{.Config.Image}}')" = postgres:16-alpine
           test "$(docker port chatxo-identity-check 5432/tcp)" = 127.0.0.1:32768
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             docker exec chatxo-identity-check pg_isready -U haunt_wizard -d haunt_wizard_test_ci && break
             sleep 1
           done

@@ -1,5 +1,32 @@
 # Testing and platform coverage
 
+The **Server regressions** workflow runs on main pushes and pull requests and is
+required by the server release workflow. It uses the isolated PostgreSQL fixture,
+race detection, real media dependencies, browser sign-in/DM/media/update checks,
+standalone first-run setup and both Linux builds. Unexpected skipped Go tests fail
+the job; the browser and first-run entry points run in separate explicit steps.
+Evidence is retained as workflow artifacts for 14 days.
+
+The manual **Call endurance** workflow accepts 30–1800 observation seconds per
+transport, runs two browser peers sequentially over WebRTC and WebSocket, and
+saves audible-playback and decoded-video samples. See the client's
+[qualification guide](../client/docs/release-qualification.md) for its limits and
+the physical-device/automatic-upgrade matrix. Independent encryption review has
+a separate [review brief and source-packet command](security-review.md).
+
+After deploying an exact release, compare both public hostnames with its extracted
+`web/` directory and the existing installation ID:
+
+```sh
+python3 scripts/check-deployment.py --origin https://haunt.xo.vg \
+  --origin https://chat-test.xo.vg --web RELEASE/web \
+  --instance EXISTING-INSTALLATION-ID --output var/deployment-check.json
+```
+
+This requires live health/readiness, the preserved installation identity, the
+expected build marker and matching bytes for every release web asset. It does not
+replace authenticated user-workflow or call testing.
+
 `go test ./...` covers the service's independent packages. Database-backed suites
 skip unless `HAUNT_TEST_DATABASE_URL` is explicitly set. The test helper verifies
 the named isolated Docker container and loopback port before creating disposable

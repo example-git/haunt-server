@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -142,7 +143,15 @@ func TestClients(t *testing.T) {
 	if err := os.WriteFile(manifest, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	timeout := 8 * time.Minute
+	if raw, present := os.LookupEnv("HAUNT_CALL_SOAK_SECONDS"); present {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds < 30 || seconds > 1800 || os.Getenv("HAUNT_CLIENT_CHECK") != "source-audio" {
+			t.Fatal("call endurance requires source-audio and 30-1800 seconds per transport")
+		}
+		timeout += 2 * time.Duration(seconds) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "node", "scripts/run-e2e.mjs", manifest)
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }

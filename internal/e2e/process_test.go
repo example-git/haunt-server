@@ -116,28 +116,32 @@ func TestCompiledServerRestartCrashBackupRestoreAndOwnerRecovery(t *testing.T) {
 		for time.Now().Before(deadline) {
 			select {
 			case <-p.done:
-				if expectReady {
-					output, _ := os.ReadFile(logPath)
-					t.Fatalf("server exited early: %v %s", p.err, output)
-				}
-				if p.err == nil {
-					t.Fatal("invalid startup succeeded")
-				}
-				return p
+				output, _ := os.ReadFile(logPath)
+				t.Fatalf("server exited early: %v %s", p.err, output)
 			default:
 			}
-			if expectReady {
-				resp, err := http.Get(base + "/readyz")
-				if err == nil {
-					resp.Body.Close()
-					if resp.StatusCode == 200 {
-						return p
+			endpoint := "/readyz"
+			if !expectReady {
+				endpoint = "/setup"
+			}
+			resp, err := http.Get(base + endpoint)
+			if err == nil {
+				ready := resp.StatusCode == http.StatusOK
+				if expectReady {
+					var status struct {
+						Status string `json:"status"`
 					}
+					ready = ready && json.NewDecoder(resp.Body).Decode(&status) == nil && status.Status == "ok"
+				}
+				resp.Body.Close()
+				if ready {
+					return p
 				}
 			}
 			time.Sleep(30 * time.Millisecond)
 		}
-		t.Fatal("process did not reach expected startup state")
+		output, _ := os.ReadFile(logPath)
+		t.Fatalf("process did not reach expected startup state (ready=%t): %s", expectReady, output)
 		return nil
 	}
 	stop := func(p *process, signal os.Signal) {
@@ -186,7 +190,10 @@ func TestCompiledServerRestartCrashBackupRestoreAndOwnerRecovery(t *testing.T) {
 			io.Copy(io.Discard, resp.Body)
 		}
 	}
-	start(environment(sourceURL, dataDir, ""), false)
+	// Missing owner credentials now enter the first-run wizard instead of exiting.
+	unconfigured := start(environment(sourceURL, dataDir, ""), false)
+	request("GET", "/setup/config", "", nil, http.StatusUnauthorized, nil)
+	stop(unconfigured, syscall.SIGTERM)
 	p := start(environment(sourceURL, dataDir, password), true)
 	var owner identity.Login
 	request("POST", "/api/v1/auth/login", "", map[string]any{"username": "owner", "password": password, "device_name": "process-test"}, 200, &owner)
