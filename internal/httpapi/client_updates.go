@@ -26,8 +26,8 @@ type ClientUpdateEnvelope struct {
 	Signature string `json:"signature"`
 }
 type clientUpdateQuery struct {
-	Version string `query:"version" required:"true" description:"Installed desktop version."`
-	Target  string `query:"target" required:"true" description:"win32-x64, linux-x64, linux-arm64 or darwin-arm64."`
+	Version string `query:"version" description:"Installed desktop version; required for authenticated local distribution."`
+	Target  string `query:"target" description:"win32-x64, linux-x64, linux-arm64 or darwin-arm64; required for authenticated local distribution."`
 }
 
 var releaseVersion = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$`)
@@ -50,7 +50,11 @@ type updatePayload struct {
 
 func clientUpdateSource(c config.Config) *ClientUpdateSource {
 	if c.ClientUpdateManifestURL != "" {
-		return &ClientUpdateSource{ManifestURL: c.ClientUpdateManifestURL}
+		source := &ClientUpdateSource{ManifestURL: c.ClientUpdateManifestURL, Installers: c.ClientUpdateInstallers}
+		if githubUpdateFeed(c.ClientUpdateManifestURL) {
+			source.ManifestURL = c.PublicURL + "/api/v1/client-updates/haunt-updates.json"
+		}
+		return source
 	}
 	if c.ClientUpdateLocal {
 		return &ClientUpdateSource{ManifestURL: c.PublicURL + "/api/v1/client-updates/haunt-updates.json", Authenticated: true, Installers: c.ClientUpdateInstallers}
@@ -68,7 +72,13 @@ func readUpdateManifest(root *os.Root, name string) (ClientUpdateEnvelope, updat
 		return envelope, payload, err
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 128*1024+1))
+	return decodeUpdateManifest(file)
+}
+
+func decodeUpdateManifest(reader io.Reader) (ClientUpdateEnvelope, updatePayload, error) {
+	var envelope ClientUpdateEnvelope
+	var payload updatePayload
+	data, err := io.ReadAll(io.LimitReader(reader, 128*1024+1))
 	if err != nil || len(data) > 128*1024 {
 		return envelope, payload, errors.New("invalid update manifest size")
 	}
@@ -104,7 +114,7 @@ func (a *api) clientUpdateRoutes(mux routeRegistrar, c config.Config) {
 	local := c.ClientUpdateLocal && c.ClientUpdateManifestURL == ""
 	directory := filepath.Join(c.DataDir, "client-updates")
 	downloads := make(chan struct{}, 4)
-	mux.HandleFunc("GET /api/v1/client-updates/installers", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+	installers := a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		if !local || !c.ClientUpdateInstallers {
 			writeJSON(w, 404, errorResponse{Error: "client_update_unavailable"})
 			return
@@ -131,8 +141,8 @@ func (a *api) clientUpdateRoutes(mux routeRegistrar, c config.Config) {
 			}
 		}
 		writeJSON(w, 200, ClientInstallers{Manifest: envelope, Available: available})
-	}))
-	mux.HandleFunc("GET /api/v1/client-updates/haunt-updates.json", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+	})
+	manifest := a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		if !local {
 			writeJSON(w, 404, errorResponse{Error: "client_update_unavailable"})
 			return
@@ -157,8 +167,8 @@ func (a *api) clientUpdateRoutes(mux routeRegistrar, c config.Config) {
 			return
 		}
 		writeJSON(w, 200, envelope)
-	}))
-	mux.HandleFunc("GET /api/v1/client-updates/{version}/{name}", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+	})
+	file := a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		if !local || !releaseVersion.MatchString(r.PathValue("version")) || !releaseFilename.MatchString(r.PathValue("name")) {
 			writeJSON(w, 404, errorResponse{Error: "client_update_unavailable"})
 			return
@@ -215,10 +225,20 @@ func (a *api) clientUpdateRoutes(mux routeRegistrar, c config.Config) {
 		w.Header().Set("Cache-Control", "private, no-store")
 		w.Header().Set("ETag", `"`+asset.SHA256+`"`)
 		http.ServeContent(w, r, asset.File, stat.ModTime(), file)
-	}))
+	})
+	if c.ClientUpdateManifestURL != "" {
+		feed := newPublicUpdateFeed(c.ClientUpdateManifestURL)
+		installers = feed.installers(c.ClientUpdateInstallers)
+		manifest = feed.manifest
+		file = feed.redirect
+	}
+	mux.HandleFunc("GET /api/v1/client-updates/installers", installers)
+	mux.HandleFunc("GET /api/v1/client-updates/haunt-updates.json", manifest)
+	mux.HandleFunc("GET /api/v1/client-updates/{version}/{name}", file)
 }
 
 type ClientInstallers struct {
 	Manifest  ClientUpdateEnvelope `json:"manifest"`
 	Available []string             `json:"available"`
+	Downloads map[string]string    `json:"downloads,omitempty"`
 }

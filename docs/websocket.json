@@ -1439,6 +1439,12 @@
               "null"
             ]
           },
+          "downloads": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "manifest": {
             "$ref": "#/components/schemas/HttpapiClientUpdateEnvelope"
           }

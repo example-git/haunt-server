@@ -130,9 +130,9 @@ func endpointContracts() map[string]endpointContract {
 	add("GET /healthz", "health", "Check process liveness", nil, statusResponse{}, 200)
 	add("GET /readyz", "readiness", "Check database and identity schema readiness", nil, statusResponse{}, 200)
 	add("GET /api/v1/instance", "instance", "Discover installation capabilities and limits", nil, instanceResponse{}, 200)
-	add("GET /api/v1/client-updates/installers", "clientInstallers", "List locally available desktop installers when enabled", nil, ClientInstallers{}, 200)
-	add("GET /api/v1/client-updates/haunt-updates.json", "clientUpdateManifest", "Get the signed desktop update manifest (local distribution enabled)", nil, ClientUpdateEnvelope{}, 200)
-	add("GET /api/v1/client-updates/{version}/{name}", "clientUpdateFile", "Download an authenticated desktop release artifact", nil, nil, 200)
+	add("GET /api/v1/client-updates/installers", "clientInstallers", "List available desktop installers and public download links when enabled", nil, ClientInstallers{}, 200)
+	add("GET /api/v1/client-updates/haunt-updates.json", "clientUpdateManifest", "Get the signed desktop update manifest", nil, ClientUpdateEnvelope{}, 200)
+	add("GET /api/v1/client-updates/{version}/{name}", "clientUpdateFile", "Download a local desktop artifact or redirect to its public release", nil, nil, 200)
 	add("POST /api/v1/auth/register", "register", "Register using an invitation", CredentialsRequest{}, identity.Login{}, 201)
 	add("POST /api/v1/auth/login", "login", "Create a device session", CredentialsRequest{}, identity.Login{}, 200)
 	add("POST /api/v1/auth/logout", "logout", "Revoke the current device session", nil, nil, 204)
@@ -273,6 +273,12 @@ func endpointContracts() map[string]endpointContract {
 	for _, pattern := range []string{"GET /healthz", "GET /readyz", "GET /api/v1/instance", "POST /api/v1/auth/register", "POST /api/v1/auth/login"} {
 		v := c[pattern]
 		v.public = true
+		c[pattern] = v
+	}
+	for _, pattern := range []string{"GET /api/v1/client-updates/installers", "GET /api/v1/client-updates/haunt-updates.json", "GET /api/v1/client-updates/{version}/{name}"} {
+		v := c[pattern]
+		v.public = true
+		v.description = "Public feeds require no session. Local distribution requires a bearer session token."
 		c[pattern] = v
 	}
 	for _, pattern := range []string{"GET /api/v1/users", "GET /api/v1/members", "GET /api/v1/conversations", "GET /api/v1/read-state"} {

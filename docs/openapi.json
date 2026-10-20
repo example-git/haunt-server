@@ -1438,6 +1438,12 @@
               "null"
             ]
           },
+          "downloads": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "manifest": {
             "$ref": "#/components/schemas/HttpapiClientUpdateEnvelope"
           }
@@ -6238,26 +6244,24 @@
     },
     "/api/v1/client-updates/haunt-updates.json": {
       "get": {
-        "description": "",
+        "description": "Public feeds require no session. Local distribution requires a bearer session token.",
         "operationId": "clientUpdateManifest",
         "parameters": [
           {
-            "description": "Installed desktop version.",
+            "description": "Installed desktop version; required for authenticated local distribution.",
             "in": "query",
             "name": "version",
-            "required": true,
             "schema": {
-              "description": "Installed desktop version.",
+              "description": "Installed desktop version; required for authenticated local distribution.",
               "type": "string"
             }
           },
           {
-            "description": "win32-x64, linux-x64, linux-arm64 or darwin-arm64.",
+            "description": "win32-x64, linux-x64, linux-arm64 or darwin-arm64; required for authenticated local distribution.",
             "in": "query",
             "name": "target",
-            "required": true,
             "schema": {
-              "description": "win32-x64, linux-x64, linux-arm64 or darwin-arm64.",
+              "description": "win32-x64, linux-x64, linux-arm64 or darwin-arm64; required for authenticated local distribution.",
               "type": "string"
             }
           }
@@ -6284,12 +6288,7 @@
             "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
           }
         },
-        "security": [
-          {
-            "session": []
-          }
-        ],
-        "summary": "Get the signed desktop update manifest (local distribution enabled)",
+        "summary": "Get the signed desktop update manifest",
         "tags": [
           "client-updates"
         ]
@@ -6297,7 +6296,7 @@
     },
     "/api/v1/client-updates/installers": {
       "get": {
-        "description": "",
+        "description": "Public feeds require no session. Local distribution requires a bearer session token.",
         "operationId": "clientInstallers",
         "responses": {
           "200": {
@@ -6321,12 +6320,7 @@
             "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
           }
         },
-        "security": [
-          {
-            "session": []
-          }
-        ],
-        "summary": "List locally available desktop installers when enabled",
+        "summary": "List available desktop installers and public download links when enabled",
         "tags": [
           "client-updates"
         ]
@@ -6334,7 +6328,7 @@
     },
     "/api/v1/client-updates/{version}/{name}": {
       "get": {
-        "description": "",
+        "description": "Public feeds require no session. Local distribution requires a bearer session token.",
         "operationId": "clientUpdateFile",
         "parameters": [
           {
@@ -6393,12 +6387,7 @@
             "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
           }
         },
-        "security": [
-          {
-            "session": []
-          }
-        ],
-        "summary": "Download an authenticated desktop release artifact",
+        "summary": "Download a local desktop artifact or redirect to its public release",
         "tags": [
           "client-updates"
         ]

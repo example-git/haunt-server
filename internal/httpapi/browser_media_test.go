@@ -115,35 +115,48 @@ func evaluateBrowser(t *testing.T, browser, page, script string) json.RawMessage
 	t.Helper()
 	scratch := t.TempDir()
 	command := exec.Command(browser, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-extensions", "--disable-background-networking", "--disable-breakpad", "--no-first-run", "--remote-debugging-port=0", "--user-data-dir="+scratch, "about:blank")
+	diagnostics, err := os.Create(filepath.Join(scratch, "chrome.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { diagnostics.Close() })
+	command.Stderr = diagnostics
 	// A new process group and private profile identify exactly this test's
 	// browser. Never search for Chrome processes or touch existing containers.
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
+	exited := make(chan error, 1)
+	go func() { exited <- command.Wait(); close(exited) }()
 	t.Cleanup(func() {
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGTERM)
-		done := make(chan struct{})
-		go func() { command.Wait(); close(done) }()
 		select {
-		case <-done:
+		case <-exited:
 		case <-time.After(2 * time.Second):
 			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-			<-done
+			<-exited
 		}
 	})
 	var port string
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(filepath.Join(scratch, "DevToolsActivePort"))
 		if err == nil {
 			port = strings.Split(string(data), "\n")[0]
 			break
 		}
+		select {
+		case err := <-exited:
+			output, _ := os.ReadFile(filepath.Join(scratch, "chrome.log"))
+			t.Fatalf("browser exited before debugging endpoint: %v\n%s", err, output)
+		default:
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	if port == "" {
-		t.Fatal("browser debugging endpoint unavailable")
+		output, _ := os.ReadFile(filepath.Join(scratch, "chrome.log"))
+		t.Fatalf("browser debugging endpoint unavailable\n%s", output)
 	}
 	request, _ := http.NewRequest("PUT", "http://127.0.0.1:"+port+"/json/new?about:blank", nil)
 	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)

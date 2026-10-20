@@ -51,6 +51,10 @@ func server(t *testing.T, name string, encoded bool) fixture {
 	if os.Getenv("HAUNT_CLIENT_CHECK") == "plugin-repository" {
 		cfg.AudioPluginGitHubToken = os.Getenv("HAUNT_AUDIO_PLUGIN_TEST_GITHUB_TOKEN")
 	}
+	if os.Getenv("HAUNT_CLIENT_CHECK") == "public-downloads" {
+		cfg.ClientUpdateManifestURL = "https://github.com/example-git/haunt-client/releases/latest/download/haunt-updates.json"
+		cfg.ClientUpdateInstallers = true
+	}
 	features, err := httpapi.NewFeatures(ctx, cfg, pool, ids, log)
 	if err != nil {
 		t.Fatal(err)

@@ -51,7 +51,12 @@ func TestClientUpdateSourcePrecedence(t *testing.T) {
 	}
 	c.ClientUpdateManifestURL = "https://downloads.example.test/a.json"
 	source = clientUpdateSource(c)
-	if source.Authenticated || source.Installers || source.ManifestURL != c.ClientUpdateManifestURL {
+	if source.Authenticated || !source.Installers || source.ManifestURL != c.ClientUpdateManifestURL {
+		t.Fatal(source)
+	}
+	c.ClientUpdateManifestURL = "https://github.com/example-git/haunt-client/releases/latest/download/haunt-updates.json"
+	source = clientUpdateSource(c)
+	if source.Authenticated || !source.Installers || source.ManifestURL != c.PublicURL+"/api/v1/client-updates/haunt-updates.json" {
 		t.Fatal(source)
 	}
 }
@@ -100,9 +105,11 @@ func TestClientUpdateMirrorAuthorizationAndFiles(t *testing.T) {
 	os.Remove(target)
 	os.Symlink(outside, target)
 	f.call(t, "GET", url, f.owner.Token, nil, 404, nil)
-	f.cfg.ClientUpdateManifestURL = "https://downloads.example.test/a.json"
+	unavailable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	defer unavailable.Close()
+	f.cfg.ClientUpdateManifestURL = unavailable.URL + "/a.json"
 	f.server.Close()
 	f.server = httptest.NewServer(New(f.cfg, f.identities, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler)
 	t.Cleanup(f.server.Close)
-	f.call(t, "GET", manifest, f.owner.Token, nil, 404, nil)
+	f.call(t, "GET", manifest, f.owner.Token, nil, 502, nil)
 }
