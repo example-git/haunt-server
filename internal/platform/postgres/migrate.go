@@ -11,7 +11,7 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-const SchemaVersion = 15
+const SchemaVersion = 16
 
 // Migrate serializes schema changes at startup only. Normal requests use the
 // pool independently. The schema and installation identity commit together.

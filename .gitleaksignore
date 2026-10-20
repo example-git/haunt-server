@@ -1,0 +1,3 @@
+# Fixed synthetic session token used only by the fake HTTP transport tests.
+# Scope this exception to the original test fixture finding in history.
+7ddadb4637bc80361fdb07f0b2afdb5211726eba:internal/serverextension/store_test.go:generic-api-key:24
