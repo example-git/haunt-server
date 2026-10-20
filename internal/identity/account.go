@@ -78,23 +78,19 @@ func (s *Service) ChangePassword(ctx context.Context, p Principal, current, repl
 	return tx.Commit(ctx)
 }
 func (s *Service) Disable(ctx context.Context, p Principal, id string, disabled bool) error {
-	if !p.User.Owner {
+	if !p.Can(Administrator) {
 		return ErrForbidden
 	}
 	if !ValidID(id) {
 		return ErrInvalid
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, p, err := s.moderationTx(ctx, p, Administrator)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var owner bool
-	if err = tx.QueryRow(ctx, `SELECT is_owner FROM chatxo.users WHERE instance_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE`, s.instanceID, id).Scan(&owner); err != nil {
-		return translate(err)
-	}
-	if owner {
-		return ErrForbidden
+	if err = s.moderateTarget(ctx, tx, p, id); err != nil {
+		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE chatxo.users SET disabled=$2 WHERE id=$1`, id, disabled); err != nil {
 		return err

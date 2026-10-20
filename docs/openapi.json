@@ -2481,7 +2481,7 @@
             "type": "string"
           },
           "permissions": {
-            "maximum": 32767,
+            "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           },
@@ -4560,7 +4560,7 @@
             "session": []
           }
         ],
-        "summary": "Read server extension configuration and credential status (owner only)",
+        "summary": "Read server extension configuration and credential status (ManageConfiguration or Administrator)",
         "tags": [
           "admin"
         ]
@@ -4616,7 +4616,7 @@
             "session": []
           }
         ],
-        "summary": "Configure a server extension; credentials are write-only (owner only)",
+        "summary": "Configure a server extension; credentials are write-only (ManageConfiguration or Administrator)",
         "tags": [
           "admin"
         ],
@@ -4693,7 +4693,7 @@
             "session": []
           }
         ],
-        "summary": "Test saved provider credentials with live speech, even while disabled (owner only)",
+        "summary": "Test saved provider credentials with live speech, even while disabled (ManageConfiguration or Administrator)",
         "tags": [
           "admin"
         ],

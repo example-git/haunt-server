@@ -9,7 +9,7 @@ import (
 
 func (f *Features) operations(a *api, mux routeRegistrar) {
 	mux.HandleFunc("GET /api/v1/admin/stats", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
-		if !p.User.Owner {
+		if !p.Can(identity.ManageConfiguration) {
 			a.fail(w, r, identity.ErrForbidden)
 			return
 		}
@@ -45,7 +45,7 @@ func (f *Features) operations(a *api, mux routeRegistrar) {
 		writeJSON(w, 200, statsResponse{Storage: map[string]any{"retained_text_bytes": text, "attachment_reserved_bytes": attachments, "messages": messages, "events": events, "attachments": files, "database_bytes": dbBytes, "wal_bytes_since_reset": walBytes, "relations": relations}, Policy: f.Chat.CurrentPolicy(), Pool: map[string]any{"total_connections": pool.TotalConns(), "acquired_connections": pool.AcquiredConns(), "idle_connections": pool.IdleConns(), "acquire_count": pool.AcquireCount(), "empty_acquire_count": pool.EmptyAcquireCount(), "acquire_duration_ns": pool.AcquireDuration().Nanoseconds()}, StorageLock: f.Chat.LockStats(), Events: f.Gateway.stats(), Media: f.Voice.Stats(), Relay: f.Relay.Stats(), CloudflareTURN: f.CloudTURN.Stats()})
 	}))
 	mux.HandleFunc("POST /api/v1/admin/maintenance", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
-		if !p.User.Owner {
+		if !p.Can(identity.ManageConfiguration) {
 			a.fail(w, r, identity.ErrForbidden)
 			return
 		}

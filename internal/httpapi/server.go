@@ -71,6 +71,7 @@ func publicRoutes(mux routeRegistrar, c config.Config, identities *identity.Serv
 			capabilities = append(capabilities, "server.extensions.v1")
 			capabilities = append(capabilities, "audio.plugins.v1", "menus.declarative.v1", "instance.configuration", "storage.providers", "messages.channels", "messages.voice_channels", "messages.dms", "dms.storage.v1", "dms.mls.v1", "messages.retention", "events.websocket", "events.account_feed", "presence.online", "messages.read_state", "messages.replies", "messages.embeds", "attachments.media", "media.voice", "media.camera", "media.screen", "media.presence", "media.source_audio", "media.joined_at")
 		}
+		capabilities = append(capabilities, "community.administrator")
 		if c.TURN.Enabled || c.HasExternalTURN() {
 			capabilities = append(capabilities, "media.relay")
 		}

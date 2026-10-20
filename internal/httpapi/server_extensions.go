@@ -39,9 +39,9 @@ func extensionFailure(w http.ResponseWriter, err error) {
 }
 
 func (f *Features) serverExtensionRoutes(a *api, mux routeRegistrar) {
-	owner := func(operation action) http.HandlerFunc {
+	manage := func(operation action) http.HandlerFunc {
 		return a.authenticated(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
-			if !principal.User.Owner {
+			if !principal.Can(identity.ManageConfiguration) {
 				a.fail(w, r, identity.ErrForbidden)
 				return
 			}
@@ -51,7 +51,7 @@ func (f *Features) serverExtensionRoutes(a *api, mux routeRegistrar) {
 	mux.HandleFunc("GET /api/v1/server-extensions", a.authenticated(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
 		writeJSON(w, 200, ServerExtensionsResponse{Extensions: f.Extensions.Catalog()})
 	}))
-	mux.HandleFunc("GET /api/v1/admin/server-extensions/{id}", owner(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
+	mux.HandleFunc("GET /api/v1/admin/server-extensions/{id}", manage(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
 		configuration, err := f.Extensions.Configuration(r.PathValue("id"))
 		if err != nil {
 			extensionFailure(w, err)
@@ -59,7 +59,7 @@ func (f *Features) serverExtensionRoutes(a *api, mux routeRegistrar) {
 		}
 		writeJSON(w, 200, configuration)
 	}))
-	mux.HandleFunc("PUT /api/v1/admin/server-extensions/{id}", owner(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
+	mux.HandleFunc("PUT /api/v1/admin/server-extensions/{id}", manage(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
 		var request serverextension.SaveRequest
 		if err := decodeLimit(w, r, &request, 4096); err != nil {
 			a.fail(w, r, err)
@@ -73,7 +73,7 @@ func (f *Features) serverExtensionRoutes(a *api, mux routeRegistrar) {
 		_ = a.identity.RecordAudit(r.Context(), principal.User.ID, "", "server_extension.configured", r.PathValue("id"))
 		writeJSON(w, 200, configuration)
 	}))
-	mux.HandleFunc("POST /api/v1/admin/server-extensions/{id}/test", owner(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
+	mux.HandleFunc("POST /api/v1/admin/server-extensions/{id}/test", manage(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
 		if !a.limit(w, "extension-test:"+principal.User.ID, 6, time.Minute) {
 			return
 		}

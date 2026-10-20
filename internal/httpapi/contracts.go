@@ -25,7 +25,7 @@ type SaveRoleRequest struct {
 	DisplaySeparately *bool  `json:"display_separately,omitempty" description:"Show online members separately in the member list. Defaults to false for new roles; omission preserves existing settings."`
 	Position          *int   `json:"position,omitempty" minimum:"0" maximum:"1000" description:"Role rank; default role is zero. Delegates can only manage lower-ranked roles and members."`
 	Name              string `json:"name" required:"true" minLength:"1" maxLength:"64"`
-	Permissions       *int64 `json:"permissions" required:"true" nullable:"false" minimum:"0" maximum:"32767"`
+	Permissions       *int64 `json:"permissions" required:"true" nullable:"false" minimum:"0" maximum:"65535"`
 }
 
 type AssignRolesRequest struct {

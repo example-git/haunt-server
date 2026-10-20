@@ -30,8 +30,8 @@ Each account has at most 20 active sessions. An additional login returns 409 `se
 | Method/path | Behavior |
 | --- | --- |
 | `POST /api/v1/invites` | `{"uses":1,"expires_in_hours":24}`; returns metadata plus a one-time-displayed token |
-| `GET /api/v1/invites` | Active invitations (up to 1000); owners see all, other inviters see their own |
-| `DELETE /api/v1/invites/{id}` | Revoke invitation; owner or its creator, with invite permission |
+| `GET /api/v1/invites` | Active invitations (up to 1000); Administrators see all, other inviters see their own |
+| `DELETE /api/v1/invites/{id}` | Revoke invitation; Administrator or its creator, with invite permission |
 
 Invitation creation requires owner status or `create_invites`. Uses range from 1–100; expiry from 1–720 hours. Each creator may have 100 active invitations. Consuming a use, creating an account, and creating its session commit together. Concurrent registration cannot exceed remaining uses; a duplicate username rolls back consumption. Revocation does not remove already registered accounts.
 
@@ -44,8 +44,19 @@ Invitation creation requires owner status or `create_invites`. Uses range from 1
 | 4 | `connect_voice` | Voice-room admission, media signaling and relay credentials |
 | 8 | `create_invites` | Invitation administration |
 | 16 | `manage_channels` | Categories/channels and their permission overrides |
+| 32 | `manage_server` | Server appearance and emojis |
+| 64 | `manage_roles` | Lower-ranked roles and member assignments |
+| 128 | `kick_members` | Kick lower-ranked members |
+| 256 | `ban_members` | Bans and appeals |
+| 512 | `delete_members` | Delete lower-ranked members |
+| 1024 | `view_audit_log` | Audit history |
+| 2048 | `view_member_ips` | Member IP history |
+| 4096 | `manage_messages` | Remove channel messages |
+| 8192 | `reset_passwords` | Reset lower-ranked members' passwords |
+| 16384 | `manage_configuration` | Runtime limits, storage, audio plugins, server extensions and maintenance |
+| 32768 | `administrator` | All server permissions and bypass of category/channel overrides |
 
-The owner always has all permissions. Every account implicitly receives the default `everyone` role (initially 7); custom assigned roles add their permissions. The owner and members with ManageRoles may change lower-ranked roles and assignments, subject to the role hierarchy. Only the owner may edit the default role. The default role is editable but cannot be deleted or explicitly assigned. Owner status cannot be changed through role assignment.
+The owner and members with Administrator always have all permissions. Servers advertise `community.administrator` when this bit is supported. Every account implicitly receives the default `everyone` role (initially 7); custom assigned roles add their permissions. The owner and members with ManageRoles may change lower-ranked roles and assignments, subject to the role hierarchy. The owner and Administrators may edit the default role. Administrator retains the member's role ranking and does not change owner identity. The default role is editable but cannot be deleted or explicitly assigned. Owner status cannot be changed through role assignment.
 
 | Method/path | Behavior |
 | --- | --- |
@@ -53,10 +64,10 @@ The owner always has all permissions. Every account implicitly receives the defa
 | `POST /api/v1/roles` | ManageRoles: `{"name":"friends","permissions":7,"position":1,"display_separately":false}` |
 | `PUT /api/v1/roles/{id}` | ManageRoles: replace name and permission bits; optional rank/display settings preserve their values when omitted |
 | `DELETE /api/v1/roles/{id}` | ManageRoles: delete a lower-ranked custom role and its assignments/overrides |
-| `GET /api/v1/members?after={id}` | Owner: up to 100 members ordered by UUID; use the last ID for the next page |
+| `GET /api/v1/members?after={id}` | ManageRoles or moderation permissions: up to 100 members ordered by UUID; use the last ID for the next page |
 | `PUT /api/v1/members/{id}/roles` | ManageRoles: `{"role_ids":["role UUID"]}` replaces lower-ranked members’ assignments; `[]` clears custom roles |
 
-Permission bits must be explicit and in the range 0–32767. Assignments are limited to 32 unique existing custom roles and replace atomically. Existing sessions read updated roles on subsequent requests; there is no authorization cache.
+Permission bits must be explicit and in the range 0–65535. Assignments are limited to 32 unique existing custom roles and replace atomically. Existing sessions read updated roles on subsequent requests; there is no authorization cache.
 
 Servers advertising `community.role_sections` accept an optional boolean
 `display_separately` on role create/update. New and migrated roles default to false;
@@ -86,7 +97,7 @@ Category/channel names contain 1–64 characters. Mutations require `manage_chan
 | `GET /api/v1/{categories\|channels}/{id}/permissions` | Manager: list role overrides |
 | `PUT /api/v1/{categories\|channels}/{id}/permissions/{role}` | Manager: `{"allow":1,"deny":0}` |
 
-Overrides may contain only channel bits (1, 2, 4), with no bit in both allow and deny. Apply the role union, then category overrides, then channel overrides. At each scope, union all applicable grants/denials and let denials win. Channel overrides can restore a category-denied permission. `{"allow":0,"deny":0}` clears the effect of an override. Invitation/management permissions remain instance-wide. Owners bypass overrides; managers can administer a channel without read access, but metadata discovery still applies read checks.
+Overrides may contain only channel bits (1, 2, 4), with no bit in both allow and deny. Apply the role union, then category overrides, then channel overrides. At each scope, union all applicable grants/denials and let denials win. Channel overrides can restore a category-denied permission. `{"allow":0,"deny":0}` clears the effect of an override. Invitation/management permissions remain instance-wide. Owners and Administrators bypass overrides; managers can administer a channel without read access, but metadata discovery still applies read checks.
 
 ## Request limits and lifecycle
 
@@ -101,8 +112,8 @@ Account disabling is implemented; physical account deletion and ownership transf
 | Method/path | Behavior |
 | --- | --- |
 | `PUT /api/v1/me/password` | `{ "current_password":"...", "new_password":"..." }`; 204, revokes **all** of your sessions |
-| `PUT /api/v1/admin/members/{id}` | Owner: `{ "disabled":true }` or false; disabling revokes sessions and created invitations |
-| `PUT /api/v1/admin/members/{id}/password` | Owner: `{ "new_password":"..." }`; resets a non-owner password and revokes sessions |
+| `PUT /api/v1/admin/members/{id}` | Administrator: `{ "disabled":true }` or false; disabling revokes sessions and created invitations |
+| `PUT /api/v1/admin/members/{id}/password` | ResetPasswords: `{ "new_password":"..." }`; resets a non-owner password and revokes sessions |
 | `GET /api/v1/users?after={id}` | Authenticated profile directory, UUID order, 100 per page |
 | `GET /api/v1/users/{id}` | Authenticated local profile: ID, username, owner flag, creation time, display name, bio, accent color and avatar version |
 
@@ -193,7 +204,7 @@ Admissions include `transport` (`webrtc` or `websocket`), `ice_transport_policy`
 
 ## Profiles, server appearance and live voice rosters
 
-Schema version 5 adds profile display names/bios/accent colors, versioned avatars, server name/description/accent/icon/banner, and channel topics. `PUT /api/v1/me/profile` changes only the current account's profile; usernames and account IDs remain stable. Only the owner can update `/api/v1/instance/settings`, the server icon or banner. A saved server name takes precedence over `HAUNT_NAME`; before the first save, discovery uses the configured name.
+Schema version 5 adds profile display names/bios/accent colors, versioned avatars, server name/description/accent/icon/banner, and channel topics. `PUT /api/v1/me/profile` changes only the current account's profile; usernames and account IDs remain stable. Members with ManageServer (including Administrators) can update `/api/v1/instance/settings`, the server icon or banner. A saved server name takes precedence over `HAUNT_NAME`; before the first save, discovery uses the configured name.
 
 Image PUTs accept raw PNG/JPEG/GIF bytes. Avatar/icon input is limited to 2 MiB and 1024 × 1024 pixels; banners to 4 MiB and 2048 × 1024. Static images are decoded and re-encoded as PNG, preserving transparency and stripping metadata/trailing content. Schema version 7 also accepts animated GIFs up to 20 MiB with the same dimension limits, up to 1000 frames and 256 Mi decoded frame pixels. Each frame is validated separately with bounded memory; GIF bytes, frame timing, transparency and looping are preserved. Decoding concurrency is bounded and art is stored separately from expiring message attachments. Avatar downloads require authentication; server icon/banner downloads are public, as is instance discovery. Metadata responses contain version identifiers, never image bytes or access tokens. DELETE removes the corresponding image. The browser editor also accepts WebP and converts/crops locally before uploading.
 

@@ -125,8 +125,10 @@ func (s *Service) principalLookup(ctx context.Context, q rowQuerier, session str
 	if err == nil && changeRequired && (len(allowPasswordChange) == 0 || !allowPasswordChange[0]) {
 		return Principal{}, ErrPasswordChange
 	}
-	if p.User.Owner {
+	if p.Can(Administrator) {
 		p.Permissions = AllPermissions
+	}
+	if p.User.Owner {
 		p.Position = 1001
 	}
 	return p, err

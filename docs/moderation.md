@@ -6,6 +6,12 @@ these controls in **Server settings**, and **Manage member** in user context men
 
 ## Permissions and hierarchy
 
+Administrator (bit 32768) grants every server permission, including Server extensions,
+and bypasses category/channel permission overrides. It retains the member's role
+rank: higher/equal roles and the owner remain protected from moderation.
+Administrators can edit lower-ranked roles, including the default role; its permissions are not automatically
+changed by migration. Existing sessions gain or lose Administrator immediately.
+
 The owner retains all permissions and cannot be kicked, banned, disabled or deleted
 through the API. Roles have a numeric rank (0–1000); the implicit everyone role is
 rank 0. A member's highest assigned rank governs moderation. Delegates can only
@@ -27,10 +33,14 @@ permissions they do not possess. Role changes apply to existing sessions.
 | 1024 | Read the audit log |
 | 2048 | Read member IP history; combined with 256, manage IP bans |
 | 4096 | Delete others' messages in accessible server channels |
+| 8192 | Reset lower-ranked members' passwords |
+| 16384 | Manage configuration, storage, extensions and diagnostics |
+| 32768 | Administrator: all permissions and channel override bypass |
 
 Message moderation does not grant access to private DMs or the ability to rewrite
-someone else's message. Host recovery, password resets and diagnostic operations
-remain owner-only. Existing roles migrate to rank 1 without receiving new powers.
+someone else's message. Host recovery remains host-only; password resets require
+ResetPasswords, and diagnostic operations require ManageConfiguration. Existing
+roles migrate to rank 1 without receiving new powers.
 The generated API documents describe the corresponding endpoints and wire types.
 
 ## Account actions

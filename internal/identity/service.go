@@ -363,7 +363,7 @@ func (s *Service) Invites(ctx context.Context, p Principal) ([]Invite, error) {
 	if !p.Can(CreateInvites) {
 		return nil, ErrForbidden
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id,created_by,remaining_uses,created_at,expires_at FROM chatxo.invites WHERE instance_id=$1 AND ($2 OR created_by=$3) AND remaining_uses>0 AND (expires_at IS NULL OR expires_at>now()) ORDER BY created_at,id LIMIT 1000`, s.instanceID, p.User.Owner, p.User.ID)
+	rows, err := s.pool.Query(ctx, `SELECT id,created_by,remaining_uses,created_at,expires_at FROM chatxo.invites WHERE instance_id=$1 AND ($2 OR created_by=$3) AND remaining_uses>0 AND (expires_at IS NULL OR expires_at>now()) ORDER BY created_at,id LIMIT 1000`, s.instanceID, p.Can(Administrator), p.User.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +386,7 @@ func (s *Service) RevokeInvite(ctx context.Context, p Principal, id string) erro
 	if !ValidID(id) {
 		return ErrInvalid
 	}
-	tag, err := s.pool.Exec(ctx, `DELETE FROM chatxo.invites WHERE instance_id=$1 AND id=$2 AND ($3 OR created_by=$4)`, s.instanceID, id, p.User.Owner, p.User.ID)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM chatxo.invites WHERE instance_id=$1 AND id=$2 AND ($3 OR created_by=$4)`, s.instanceID, id, p.Can(Administrator), p.User.ID)
 	if err != nil {
 		return err
 	}

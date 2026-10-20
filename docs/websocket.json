@@ -2482,7 +2482,7 @@
             "type": "string"
           },
           "permissions": {
-            "maximum": 32767,
+            "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           },

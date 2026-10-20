@@ -47,7 +47,7 @@ func (s *Service) SaveRole(ctx context.Context, p Principal, id, name string, bi
 		if err = tx.QueryRow(ctx, `SELECT position,permissions,is_default,display_separately FROM chatxo.roles WHERE instance_id=$1 AND id=$2 FOR UPDATE`, s.instanceID, id).Scan(&oldPosition, &oldBits, &v.Default, &v.DisplaySeparately); err != nil {
 			return v, translate(err)
 		}
-		if !p.User.Owner && (oldPosition >= p.Position || oldBits & ^p.Permissions != 0 || v.Default) {
+		if !p.User.Owner && (oldPosition >= p.Position || oldBits & ^p.Permissions != 0 || (v.Default && !p.Can(Administrator))) {
 			return v, ErrForbidden
 		}
 		if requestedPosition == nil {
@@ -159,7 +159,7 @@ type Member struct {
 }
 
 func (s *Service) Members(ctx context.Context, p Principal, after string) ([]Member, error) {
-	if !p.User.Owner && p.Permissions&(ManageRoles|KickMembers|BanMembers|DeleteMembers|ViewMemberIPs|ResetPasswords) == 0 {
+	if !p.Can(Administrator) && p.Permissions&(ManageRoles|KickMembers|BanMembers|DeleteMembers|ViewMemberIPs|ResetPasswords) == 0 {
 		return nil, ErrForbidden
 	}
 	if after != "" && !ValidID(after) {
@@ -251,7 +251,7 @@ func (s *Service) Channels(ctx context.Context, p Principal, id string) ([]Chann
 		selected = id
 	}
 	rows, err := s.pool.Query(ctx, `SELECT c.id,c.category_id,c.name,c.kind,c.topic,c.icon,
-        CASE WHEN $5 THEN 31 ELSE (((($3::bigint | cat.allow_bits) & ~cat.deny_bits) | ch.allow_bits) & ~ch.deny_bits) END
+        CASE WHEN $5 THEN $6::bigint ELSE (((($3::bigint | cat.allow_bits) & ~cat.deny_bits) | ch.allow_bits) & ~ch.deny_bits) END
         FROM chatxo.channels c
         LEFT JOIN LATERAL (
             SELECT COALESCE(bit_or(o.allow_bits),0) allow_bits,COALESCE(bit_or(o.deny_bits),0) deny_bits
@@ -263,7 +263,7 @@ func (s *Service) Channels(ctx context.Context, p Principal, id string) ([]Chann
             FROM chatxo.channel_permissions o JOIN chatxo.roles r ON r.id=o.role_id
             WHERE o.channel_id=c.id AND (r.is_default OR EXISTS(SELECT 1 FROM chatxo.user_roles ur WHERE ur.user_id=$2 AND ur.role_id=r.id))
         ) ch ON true
-        WHERE c.instance_id=$1 AND ($4::uuid IS NULL OR c.id=$4::uuid) ORDER BY c.name,c.id`, s.instanceID, p.User.ID, p.Permissions, selected, p.User.Owner)
+        WHERE c.instance_id=$1 AND ($4::uuid IS NULL OR c.id=$4::uuid) ORDER BY c.name,c.id`, s.instanceID, p.User.ID, p.Permissions, selected, p.Can(Administrator), AllPermissions)
 	if err != nil {
 		return nil, err
 	}

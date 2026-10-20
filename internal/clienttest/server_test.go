@@ -55,7 +55,7 @@ func server(t *testing.T, name string, encoded bool) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if os.Getenv("HAUNT_CLIENT_CHECK") == "narrator" {
+	if mode := os.Getenv("HAUNT_CLIENT_CHECK"); mode == "narrator" || mode == "ui-refresh" {
 		features.Extensions.Close()
 		features.Extensions = narratorExtension(t, cfg.DataDir)
 	}
@@ -110,7 +110,25 @@ func server(t *testing.T, name string, encoded bool) fixture {
 		t.Fatal(err)
 	}
 	for i := 0; i < 105; i++ {
-		if _, err = features.Chat.Create(ctx, principal, general.ID, identity.NewID(), "Archive message", "", nil); err != nil {
+		message, err := features.Chat.Create(ctx, principal, general.ID, identity.NewID(), "Archive message", "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if os.Getenv("HAUNT_CLIENT_CHECK") == "ui-refresh" {
+			// Real historical rows exercise calendar boundaries and pagination.
+			now := time.Now().UTC()
+			at := time.Date(now.Year(), now.Month(), now.Day()-3+i/40, 12, i%40, 0, 0, time.UTC)
+			if _, err := pool.Exec(ctx, `UPDATE chatxo.messages SET created_at=$2 WHERE id=$1`, message.ID, at); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx, `UPDATE chatxo.events SET created_at=$2 WHERE message_id=$1`, message.ID, at); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if os.Getenv("HAUNT_CLIENT_CHECK") == "ui-refresh" {
+		// Expire historical replay through real maintenance, leaving history intact.
+		if err := features.Maintain(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}

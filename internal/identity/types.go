@@ -42,7 +42,8 @@ const (
 	ManageMessages
 	ResetPasswords
 	ManageConfiguration
-	AllPermissions     int64 = (1 << 15) - 1
+	Administrator
+	AllPermissions     int64 = (1 << 16) - 1
 	ChannelPermissions       = ViewChannel | SendMessages | ConnectVoice
 )
 
@@ -69,7 +70,9 @@ type Principal struct {
 	Position    int    `json:"role_position"`
 }
 
-func (p Principal) Can(bits int64) bool { return p.User.Owner || p.Permissions&bits == bits }
+func (p Principal) Can(bits int64) bool {
+	return p.User.Owner || p.Permissions&Administrator != 0 || p.Permissions&bits == bits
+}
 
 type Session struct {
 	ID         string     `json:"id"`
