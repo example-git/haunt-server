@@ -55,6 +55,10 @@ func server(t *testing.T, name string, encoded bool) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if os.Getenv("HAUNT_CLIENT_CHECK") == "narrator" {
+		features.Extensions.Close()
+		features.Extensions = narratorExtension(t, cfg.DataDir)
+	}
 	{ // Each isolated test service supplies a redistributable, independent audio plugin.
 		path := os.Getenv("HAUNT_AUDIO_PLUGIN_TEST_PACKAGE")
 		if path == "" {

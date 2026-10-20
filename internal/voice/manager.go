@@ -282,6 +282,9 @@ func (m *Manager) Join(ctx context.Context, p identity.Principal, connectionID, 
 		return Snapshot{}, ErrCapacity
 	}
 	member := &participant{id: identity.NewID(), joinedAt: time.Now().UTC(), connection: connectionID, user: p.User.ID, session: p.SessionID, room: r, send: send, trackIDs: map[string]string{}, sources: map[string]*source{}, subscriptions: map[string]*subscription{}}
+	// No video sources exist at admission. Advertising them as active produces
+	// false camera/screen stop events when the client sends its initial state.
+	member.state = State{CameraOff: true, ScreenOff: true}
 	if a.ICEExpiresAt != nil {
 		member.iceExpires = *a.ICEExpiresAt
 	}

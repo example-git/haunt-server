@@ -26,6 +26,9 @@ func joinVoice(t *testing.T, f *fixture, token, room string) (*websocket.Conn, v
 	if json.Unmarshal(event["participant"], &participant) != nil {
 		t.Fatal("invalid voice join")
 	}
+	if !participant.State.CameraOff || !participant.State.ScreenOff {
+		t.Fatal("new participant advertised video sources before publishing")
+	}
 	return conn, participant
 }
 func peerOffer(t *testing.T, pc *webrtc.PeerConnection) webrtc.SessionDescription {
@@ -48,6 +51,10 @@ func peerOffer(t *testing.T, pc *webrtc.PeerConnection) webrtc.SessionDescriptio
 }
 func publishTracks(t *testing.T, conn *websocket.Conn) *webrtc.PeerConnection {
 	t.Helper()
+	// Enable the microphone, camera and screen, as the client does when
+	// starting these sources; admission itself has no active video.
+	wsSend(t, conn, map[string]any{"type": "media.state", "state": voice.State{}})
+	wsRead(t, conn, "media.state.accepted")
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		t.Fatal(err)

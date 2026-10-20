@@ -63,6 +63,8 @@ async function join(token) {
 try {
   if(!globalThis.VideoEncoder||!globalThis.AudioEncoder)throw Error('WebCodecs encoders unavailable');
   const pub=await join(input.alice),sub=await join(input.bob);
+  pub.events.send({type:'media.state',state:{muted:false,deafened:false,camera_off:false,screen_off:true}});
+  await pub.events.wait(x=>x.type==='media.state.accepted');
   let video,audio,videoConfig,audioConfig,encodeError;
   const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;const paint=canvas.getContext('2d');paint.fillStyle='#d44a20';paint.fillRect(0,0,64,64);
   const ve=new VideoEncoder({output:(chunk,metadata)=>{video=chunk;if(metadata.decoderConfig)videoConfig=metadata.decoderConfig},error:e=>encodeError=e});

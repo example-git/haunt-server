@@ -88,6 +88,8 @@ func decodableMedia(t *testing.T, serverRelay bool) {
 		{"opus", "libopus", "ogg", "minptime=10;useinbandfec=1", "audio", "udp", 48000, 2, func() rtp.Depacketizer { return &codecs.OpusPacket{} }},
 	} {
 		t.Run(tc.name+"/"+tc.transport, func(t *testing.T) {
+			wsSend(t, publisherWS, map[string]any{"type": "media.state", "state": voice.State{CameraOff: tc.purpose != "camera", ScreenOff: tc.purpose != "screen"}})
+			wsRead(t, publisherWS, "media.state.accepted")
 			scratch := t.TempDir()
 			original := filepath.Join(scratch, "source."+tc.format)
 			args := []string{"-v", "error", "-threads", "1", "-filter_threads", "1", "-f", "lavfi"}
