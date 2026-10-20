@@ -174,7 +174,7 @@ func TestReadStatePaginationAndConcurrentMonotonicReads(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = features.Chat.Create(ctx, owner, c.ID, identity.NewID(), "@alice unread", nil); err != nil {
+		if _, err = features.Chat.Create(ctx, owner, c.ID, identity.NewID(), "@alice unread", "", nil); err != nil {
 			t.Fatal(err)
 		}
 		last = c.ID
@@ -204,7 +204,7 @@ func TestReadStatePaginationAndConcurrentMonotonicReads(t *testing.T) {
 	}
 	f.call(t, "GET", "/api/v1/read-state?after=bad", alice.Token, nil, 400, nil)
 	for i := 1; i < 20; i++ {
-		if _, err := features.Chat.Create(ctx, owner, last, identity.NewID(), "message", nil); err != nil {
+		if _, err := features.Chat.Create(ctx, owner, last, identity.NewID(), "message", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -877,6 +877,12 @@
             },
             "type": "array"
           },
+          "reply_to_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "request_id": {
             "type": "string"
           },
@@ -1133,6 +1139,9 @@
       },
       "EmbedsPreview": {
         "properties": {
+          "author_name": {
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -1148,7 +1157,13 @@
           "kind": {
             "type": "string"
           },
+          "published_at": {
+            "type": "string"
+          },
           "site_name": {
+            "type": "string"
+          },
+          "theme_color": {
             "type": "string"
           },
           "title": {
@@ -1563,6 +1578,11 @@
             "description": "Nonblank body or at least one attachment. UTF-8 bytes are bounded by installation policy (at most 64 KiB).",
             "type": "string"
           },
+          "reply_to_id": {
+            "description": "Message in the same conversation to reference as a reply.",
+            "format": "uuid",
+            "type": "string"
+          },
           "request_id": {
             "format": "uuid",
             "type": "string"
@@ -1748,6 +1768,27 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "HttpapiExtensionSpeechRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "room_id": {
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "voice": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "voice"
+        ],
         "type": "object"
       },
       "HttpapiIceResponse": {
@@ -2458,6 +2499,23 @@
         "required": [
           "name",
           "permissions"
+        ],
+        "type": "object"
+      },
+      "HttpapiServerExtensionsResponse": {
+        "properties": {
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/ServerextensionExtension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "extensions"
         ],
         "type": "object"
       },
@@ -3273,6 +3331,123 @@
           "username",
           "is_owner",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ServerextensionConfiguration": {
+        "properties": {
+          "category": {
+            "enum": [
+              "tts"
+            ],
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "enabled",
+          "configured",
+          "revision",
+          "endpoint"
+        ],
+        "type": "object"
+      },
+      "ServerextensionExtension": {
+        "properties": {
+          "category": {
+            "enum": [
+              "tts"
+            ],
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "enabled",
+          "configured"
+        ],
+        "type": "object"
+      },
+      "ServerextensionSaveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "clear_token": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_token": {
+            "description": "Write-only TikTok sessionid. Omit or leave blank to keep the saved token.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "enabled",
+          "endpoint"
+        ],
+        "type": "object"
+      },
+      "ServerextensionSpeechRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "voice": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "voice"
         ],
         "type": "object"
       },

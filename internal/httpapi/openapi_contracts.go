@@ -7,6 +7,7 @@ import (
 	"github.com/example-git/haunt-server/internal/chat"
 	"github.com/example-git/haunt-server/internal/config"
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/serverextension"
 	"github.com/example-git/haunt-server/internal/voice"
 	"time"
 )
@@ -150,6 +151,11 @@ func endpointContracts() map[string]endpointContract {
 	add("PUT /api/v1/me/profile", "updateProfile", "Update your display name, bio and avatar color", identity.ProfileSettingsRequest{}, identity.User{}, 200)
 	add("PUT /api/v1/admin/audio-plugins/default", "setDefaultAudioPlugin", "Save default plugin, model and controls for new clients (ManageConfiguration)", audioplugin.Preferences{}, audioplugin.Preferences{}, 200)
 	add("GET /api/v1/audio-plugins", "listAudioPlugins", "List local audio plugins and integrity hashes", nil, AudioPluginsResponse{}, 200)
+	add("GET /api/v1/server-extensions", "listServerExtensions", "List server-hosted extensions without credentials", nil, ServerExtensionsResponse{}, 200)
+	add("GET /api/v1/admin/server-extensions/{id}", "getServerExtension", "Read server extension configuration and credential status (owner only)", nil, serverextension.Configuration{}, 200)
+	add("PUT /api/v1/admin/server-extensions/{id}", "saveServerExtension", "Configure a server extension; credentials are write-only (owner only)", serverextension.SaveRequest{}, serverextension.Configuration{}, 200)
+	add("POST /api/v1/admin/server-extensions/{id}/test", "testServerExtension", "Test saved provider credentials with live speech, even while disabled (owner only)", serverextension.SpeechRequest{}, nil, 200)
+	add("POST /api/v1/server-extensions/{id}/speech", "serverExtensionSpeech", "Generate speech using this server's enabled TTS extension", ExtensionSpeechRequest{}, nil, 200)
 	add("GET /api/v1/audio-plugins/{digest}/files/{name}", "downloadAudioPlugin", "Download an authenticated Wasm asset", nil, nil, 200)
 	add("POST /api/v1/admin/audio-plugins", "installAudioPlugin", "Install a ZIP of Wasm modules and a declarative manifest, at most 50 MiB packed and unpacked (ManageConfiguration)", nil, audioplugin.Plugin{}, 201)
 	add("POST /api/v1/admin/audio-plugins/repository", "installAudioPluginRepository", "Install dist/haunt-plugin.zip from an HTTPS GitHub repository at a full commit ID, requiring its SHA-256 (ManageConfiguration)", audioplugin.RepositoryInstall{}, audioplugin.Plugin{}, 201)
@@ -286,6 +292,11 @@ func endpointContracts() map[string]endpointContract {
 	pluginDownload := c["GET /api/v1/audio-plugins/{digest}/files/{name}"]
 	pluginDownload.binaryOutput = true
 	c["GET /api/v1/audio-plugins/{digest}/files/{name}"] = pluginDownload
+	for _, pattern := range []string{"POST /api/v1/admin/server-extensions/{id}/test", "POST /api/v1/server-extensions/{id}/speech"} {
+		contract := c[pattern]
+		contract.binaryOutput = true
+		c[pattern] = contract
+	}
 	embedImage := c["GET /api/v1/conversations/{id}/messages/{message}/embeds/image"]
 	embedImage.query = embedImageQuery{}
 	embedImage.binaryOutput = true

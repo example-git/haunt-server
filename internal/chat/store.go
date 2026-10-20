@@ -43,6 +43,7 @@ type Message struct {
 	EditedAt       *time.Time `json:"edited_at,omitempty"`
 	Deleted        bool       `json:"deleted"`
 	RequestID      string     `json:"request_id"`
+	ReplyToID      *string    `json:"reply_to_id,omitempty"`
 	MentionUserIDs []string   `json:"mention_user_ids,omitempty"`
 }
 type History struct {
@@ -59,11 +60,11 @@ type Event struct {
 	Data           any    `json:"data"`
 }
 
-const messageColumns = `id,conversation_id,author_id,seq,body,attachment_ids,created_at,edited_at,deleted,request_id,mention_user_ids`
+const messageColumns = `id,conversation_id,author_id,seq,body,attachment_ids,created_at,edited_at,deleted,request_id,reply_to_id,mention_user_ids`
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
-	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.MentionUserIDs)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.ReplyToID, &m.MentionUserIDs)
 	return m, err
 }
 
@@ -237,7 +238,7 @@ func changeText(ctx context.Context, tx pgx.Tx, delta int64) error {
 }
 func messageBytes(m Message) int64 { b, _ := json.Marshal(m); return int64(len(b) + 64) }
 
-func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request, body string, attachments []string) (Message, error) {
+func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request, body, reply string, attachments []string) (Message, error) {
 	if err := s.Access(ctx, p, conv, true); err != nil {
 		return Message{}, err
 	}
@@ -250,8 +251,9 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 	input, _ := json.Marshal(struct {
 		Conversation string
 		Body         string
+		Reply        string
 		Attachments  []string
-	}{conv, body, attachments})
+	}{conv, body, reply, attachments})
 	hash := sha256.Sum256(input)
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -295,13 +297,37 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Message{}, err
 	}
+	replyAuthor := ""
+	if reply != "" {
+		if !identity.ValidID(reply) {
+			return Message{}, identity.ErrInvalid
+		}
+		if err = tx.QueryRow(ctx, `SELECT author_id FROM chatxo.messages WHERE id=$1 AND conversation_id=$2 AND NOT deleted AND chatxo.message_retained(conversation_id,created_at,$3,$4)`, reply, conv, policy.TextRetentionDays, policy.DM.TextRetentionDays).Scan(&replyAuthor); errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, identity.ErrInvalid
+		} else if err != nil {
+			return Message{}, err
+		}
+	}
 	if err = s.validateMLS(ctx, tx, p, conv, body); err != nil {
 		return Message{}, err
 	}
 	m := Message{ID: identity.NewID(), ConversationID: conv, AuthorID: p.User.ID, Body: body, Attachments: attachments, RequestID: request}
+	if reply != "" {
+		m.ReplyToID = &reply
+	}
 	m.MentionUserIDs, err = s.resolveMentions(ctx, tx, body)
 	if err != nil {
 		return Message{}, err
+	}
+	if replyAuthor != "" && replyAuthor != p.User.ID {
+		found := false
+		for _, id := range m.MentionUserIDs {
+			found = found || id == replyAuthor
+		}
+		if !found {
+			m.MentionUserIDs = append(m.MentionUserIDs, replyAuthor)
+			sort.Strings(m.MentionUserIDs)
+		}
 	}
 	if err = tx.QueryRow(ctx, `UPDATE chatxo.conversations SET last_seq=last_seq+1 WHERE id=$1 RETURNING last_seq,clock_timestamp()`, conv).Scan(&m.Seq, &m.CreatedAt); err != nil {
 		return Message{}, err
@@ -321,7 +347,7 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 			return Message{}, err
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,author_id,seq,body,attachment_ids,created_at,request_id,request_hash,bytes,mention_user_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, m.ID, conv, p.User.ID, m.Seq, body, attachments, m.CreatedAt, request, hash[:], messageBytes(m), m.MentionUserIDs)
+	_, err = tx.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,author_id,seq,body,attachment_ids,created_at,request_id,request_hash,bytes,reply_to_id,mention_user_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, m.ID, conv, p.User.ID, m.Seq, body, attachments, m.CreatedAt, request, hash[:], messageBytes(m), m.ReplyToID, m.MentionUserIDs)
 	if err != nil {
 		return Message{}, err
 	}

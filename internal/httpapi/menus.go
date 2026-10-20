@@ -97,6 +97,9 @@ func runtimeMenu() MenuPage {
 }
 func serverMenu(p identity.Principal) MenuManifest {
 	v := MenuManifest{Version: 1, Pages: []MenuPage{}}
+	if p.User.Owner {
+		v.Pages = append(v.Pages, MenuPage{ID: "server-extensions", Label: "Server extensions", ContextLabel: "Server extensions", Builtin: "server-extensions"})
+	}
 	add := func(permission int64, id, label string) {
 		if p.Can(permission) {
 			v.Pages = append(v.Pages, MenuPage{ID: id, Label: label, ContextLabel: label, Builtin: id})

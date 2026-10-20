@@ -14,6 +14,7 @@ import (
 	"github.com/example-git/haunt-server/internal/embeds"
 	"github.com/example-git/haunt-server/internal/identity"
 	"github.com/example-git/haunt-server/internal/relay"
+	"github.com/example-git/haunt-server/internal/serverextension"
 	"github.com/example-git/haunt-server/internal/turnclient"
 	"github.com/example-git/haunt-server/internal/voice"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +23,7 @@ import (
 )
 
 type Features struct {
+	Extensions       *serverextension.Store
 	AudioPlugins     *audioplugin.Store
 	PluginRepository *audioplugin.RepositoryInstaller
 	Defaults         config.RuntimeSettings
@@ -63,6 +65,11 @@ func NewFeatures(ctx context.Context, c config.Config, pool *pgxpool.Pool, ids *
 		}
 	}
 	cloudTURN := turnclient.New(c)
+	extensions, err := serverextension.New(c.DataDir)
+	if err != nil {
+		media.Close()
+		return nil, err
+	}
 	var sources []turnclient.Source
 	if cloudTURN != nil {
 		sources = append(sources, cloudTURN)
@@ -80,12 +87,15 @@ func NewFeatures(ctx context.Context, c config.Config, pool *pgxpool.Pool, ids *
 	}
 	gateway := newGateway(store, ids, logger)
 	gateway.media = sfu
-	return &Features{PluginRepository: audioplugin.NewRepositoryInstaller(c.AudioPluginGitHubToken), AudioPlugins: plugins, Defaults: c.RuntimeDefaults(), Previews: embeds.New(), Chat: store, Gateway: gateway, Attachments: media, Voice: sfu, Relay: turn, Media: newMediaGateway(sfu, ids, c.MediaMaxPeers), CloudTURN: cloudTURN}, nil
+	return &Features{Extensions: extensions, PluginRepository: audioplugin.NewRepositoryInstaller(c.AudioPluginGitHubToken), AudioPlugins: plugins, Defaults: c.RuntimeDefaults(), Previews: embeds.New(), Chat: store, Gateway: gateway, Attachments: media, Voice: sfu, Relay: turn, Media: newMediaGateway(sfu, ids, c.MediaMaxPeers), CloudTURN: cloudTURN}, nil
 }
 func (f *Features) Maintain(ctx context.Context) error {
 	return errors.Join(f.Chat.Maintain(ctx), f.Attachments.Maintain(ctx))
 }
 func (f *Features) Close(ctx context.Context) error {
+	if f.Extensions != nil {
+		f.Extensions.Close()
+	}
 	if f.PluginRepository != nil {
 		f.PluginRepository.Close()
 	}
@@ -105,6 +115,7 @@ func (f *Features) routes(a *api, mux routeRegistrar) {
 	f.configurationRoutes(a, mux)
 	f.menuRoutes(a, mux)
 	f.audioPluginRoutes(a, mux)
+	f.serverExtensionRoutes(a, mux)
 	f.embedRoutes(a, mux)
 	mux.HandleFunc("GET /api/v1/events", f.Gateway.handle)
 	mux.HandleFunc("GET /api/v1/media", f.Media.handle)
@@ -287,7 +298,7 @@ func (f *Features) routes(a *api, mux routeRegistrar) {
 			a.fail(w, r, err)
 			return
 		}
-		item, err := f.Chat.Create(r.Context(), p, r.PathValue("id"), body.Request, body.Body, body.Attachments)
+		item, err := f.Chat.Create(r.Context(), p, r.PathValue("id"), body.Request, body.Body, body.Reply, body.Attachments)
 		if err != nil {
 			a.fail(w, r, err)
 			return

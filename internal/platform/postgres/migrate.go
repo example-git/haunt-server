@@ -38,7 +38,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, instanceID string) error {
 	for _, migration := range []struct {
 		version int
 		name    string
-	}{{1, "001_identity.sql"}, {2, "002_chat.sql"}, {3, "003_operations.sql"}, {4, "004_indexes.sql"}, {5, "005_customization.sql"}, {6, "006_gateway_reads.sql"}, {7, "007_emojis_animated_art.sql"}, {8, "008_persistent_sessions.sql"}, {9, "009_moderation.sql"}, {10, "010_password_reset.sql"}, {11, "011_channel_icons.sql"}, {12, "012_runtime_storage.sql"}, {13, "013_role_sections.sql"}, {14, "014_dm_storage.sql"}, {15, "015_dm_mls.sql"}} {
+	}{{1, "001_identity.sql"}, {2, "002_chat.sql"}, {3, "003_operations.sql"}, {4, "004_indexes.sql"}, {5, "005_customization.sql"}, {6, "006_gateway_reads.sql"}, {7, "007_emojis_animated_art.sql"}, {8, "008_persistent_sessions.sql"}, {9, "009_moderation.sql"}, {10, "010_password_reset.sql"}, {11, "011_channel_icons.sql"}, {12, "012_runtime_storage.sql"}, {13, "013_role_sections.sql"}, {14, "014_dm_storage.sql"}, {15, "015_dm_mls.sql"}, {16, "016_message_replies.sql"}} {
 		if version >= migration.version {
 			continue
 		}

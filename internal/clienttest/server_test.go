@@ -106,7 +106,7 @@ func server(t *testing.T, name string, encoded bool) fixture {
 		t.Fatal(err)
 	}
 	for i := 0; i < 105; i++ {
-		if _, err = features.Chat.Create(ctx, principal, general.ID, identity.NewID(), "Archive message", nil); err != nil {
+		if _, err = features.Chat.Create(ctx, principal, general.ID, identity.NewID(), "Archive message", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

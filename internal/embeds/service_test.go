@@ -131,7 +131,7 @@ func TestMetadataCacheImagesAndRedirectValidation(t *testing.T) {
 		switch r.URL.Path {
 		case "/article":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<head><title>fallback</title><meta property="og:title" content="A &amp; B"><meta property="og:title" content="Ignored"><meta name="description" content="Plain description"><meta property="og:site_name" content="Test site"><meta property="og:image" content="/picture"><meta property="og:url" content="https://evil.example.com/"></head><body><meta property="og:title" content="Ignored body">`)
+			fmt.Fprint(w, `<head><title>fallback</title><meta property="og:title" content="A &amp; B"><meta property="og:title" content="Ignored"><meta name="description" content="Plain description"><meta property="og:site_name" content="Test site"><meta property="article:author" content="Example Writer"><meta property="article:published_time" content="2026-10-18T12:30:00-04:00"><meta name="theme-color" content="#A1B2C3"><meta property="og:image" content="/picture"><meta property="og:url" content="https://evil.example.com/"></head><body><meta property="og:title" content="Ignored body">`)
 		case "/picture":
 			w.Header().Set("Content-Type", "image/png")
 			w.Write(imageBytes())
@@ -149,7 +149,7 @@ func TestMetadataCacheImagesAndRedirectValidation(t *testing.T) {
 	}))
 	ctx := context.Background()
 	p, err := s.Page(ctx, "http://preview.example.com/article")
-	if err != nil || p.Title != "A & B" || p.Description != "Plain description" || !p.Image || p.URL != "http://preview.example.com/article" || p.ImageURL != "http://preview.example.com/picture" {
+	if err != nil || p.Title != "A & B" || p.Description != "Plain description" || p.Author != "Example Writer" || p.PublishedAt != "2026-10-18T16:30:00Z" || p.ThemeColor != "#a1b2c3" || !p.Image || p.URL != "http://preview.example.com/article" || p.ImageURL != "http://preview.example.com/picture" {
 		t.Fatal(p, err)
 	}
 	_, err = s.Page(ctx, p.URL)

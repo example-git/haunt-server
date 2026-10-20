@@ -23,6 +23,7 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | GET | `/api/v1/admin/audit` | List recent moderation and sampled access events (ViewAuditLog) | Bearer | 200 |
 | GET | `/api/v1/admin/bans` | List active bans (BanMembers) | Bearer | 200 |
 | GET | `/api/v1/admin/members/{id}/ips` | Read private member IP history (ViewMemberIPs) | Bearer | 200 |
+| GET | `/api/v1/admin/server-extensions/{id}` | Read server extension configuration and credential status (owner only) | Bearer | 200 |
 | GET | `/api/v1/admin/stats` | Inspect storage, pool, queue and media metrics (requires the corresponding server permission) | Bearer | 200 |
 | GET | `/api/v1/admin/storage` | List attachment storage providers; credentials are never returned (ManageConfiguration) | Bearer | 200 |
 | GET | `/api/v1/attachments/{id}` | Download an authorized attachment; supports Range and HEAD | Bearer | 200 |
@@ -60,6 +61,7 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | GET | `/api/v1/menus/server` | Permission-filtered declarative server settings and context menu | Bearer | 200 |
 | GET | `/api/v1/read-state` | List persistent unread and mention counts for accessible conversations | Bearer | 200 |
 | GET | `/api/v1/roles` | List community roles | Bearer | 200 |
+| GET | `/api/v1/server-extensions` | List server-hosted extensions without credentials | Bearer | 200 |
 | GET | `/api/v1/sessions` | List this account's device sessions | Bearer | 200 |
 | GET | `/api/v1/users` | List public user profiles | Bearer | 200 |
 | GET | `/api/v1/users/{id}` | Get one public user profile | Bearer | 200 |
@@ -76,6 +78,7 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | POST | `/api/v1/admin/maintenance` | Run bounded maintenance (requires the corresponding server permission) | Bearer | 204 |
 | POST | `/api/v1/admin/members/{id}/moderate` | Kick, ban, restore or delete a lower-ranked member | Bearer | 204 |
 | POST | `/api/v1/admin/members/{id}/password-reset` | Issue a temporary password and revoke sessions (Reset passwords permission; lower-ranked members only) | Bearer | 200 |
+| POST | `/api/v1/admin/server-extensions/{id}/test` | Test saved provider credentials with live speech, even while disabled (owner only) | Bearer | 200 |
 | POST | `/api/v1/admin/storage` | Verify write/read/delete access and register private attachment storage (ManageConfiguration) | Bearer | 201 |
 | POST | `/api/v1/admin/storage/{id}/check` | Verify provider write/read/delete access (ManageConfiguration) | Bearer | 204 |
 | POST | `/api/v1/auth/ban/appeal` | Submit one plain-text appeal per ban per rolling 30 days | Public | 204 |
@@ -93,11 +96,13 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | POST | `/api/v1/me/dm-devices` | Register an immutable MLS device credential | Bearer | 200 |
 | POST | `/api/v1/me/dm-storage/purge` | Preview or purge your older DM uploads; confirmed requests remove up to 128 files | Bearer | 200 |
 | POST | `/api/v1/roles` | Create a role (ManageRoles; lower rank only) | Bearer | 201 |
+| POST | `/api/v1/server-extensions/{id}/speech` | Generate speech using this server's enabled TTS extension | Bearer | 200 |
 | POST | `/api/v1/sessions/restore` | Create an independent device session from a valid backup session without revoking it or extending its expiry | Bearer | 201 |
 | POST | `/api/v1/voice/{id}/admissions` | Get a single-use room admission and automatic transport | Bearer | 201 |
 | PUT | `/api/v1/admin/audio-plugins/default` | Save default plugin, model and controls for new clients (ManageConfiguration) | Bearer | 200 |
 | PUT | `/api/v1/admin/members/{id}` | Disable or enable a member (owner) | Bearer | 204 |
 | PUT | `/api/v1/admin/members/{id}/password` | Set a temporary member password, require replacement, and revoke sessions | Bearer | 204 |
+| PUT | `/api/v1/admin/server-extensions/{id}` | Configure a server extension; credentials are write-only (owner only) | Bearer | 200 |
 | PUT | `/api/v1/admin/storage/active` | Select the provider for new uploads; existing files retain their provider (ManageConfiguration) | Bearer | 204 |
 | PUT | `/api/v1/admin/storage/{id}/credentials` | Verify and replace S3 credentials (ManageConfiguration) | Bearer | 204 |
 | PUT | `/api/v1/categories/{id}` | Update a category | Bearer | 200 |

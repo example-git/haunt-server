@@ -72,6 +72,7 @@ type CreateDMRequest struct {
 type CreateMessageRequest struct {
 	Body        string   `json:"body" description:"Nonblank body or at least one attachment. UTF-8 bytes are bounded by installation policy (at most 64 KiB)."`
 	Request     string   `json:"request_id" required:"true" format:"uuid"`
+	Reply       string   `json:"reply_to_id,omitempty" format:"uuid" description:"Message in the same conversation to reference as a reply."`
 	Attachments []string `json:"attachment_ids" maxItems:"8"`
 }
 

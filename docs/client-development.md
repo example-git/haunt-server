@@ -23,11 +23,13 @@ When adding a route, add its contract in `internal/httpapi/openapi_contracts.go`
 
 Start with `GET /api/v1/instance` for installation identity, capabilities, transport and configured limits. Keep credentials, event cursors, messages and connections scoped to each instance. Implement invitation/login, histories and recovery, uploads, then media using [api.md](api.md) and [media-transports.md](media-transports.md). The browser/Electron client and reusable messaging SDK now live under [`client/`](../client/README.md); that directory documents actual client behavior, Android integration boundaries, builds and verification.
 
+`messages.replies` adds optional `reply_to_id` fields to message creation and returned messages. The target must be a retained, undeleted message in the same conversation when the reply is first committed. Keep the identifier when its target is later edited, deleted or pruned so clients can show a tombstone or unavailable-reference state; retries use the original request ID and reply target.
+
 ## Rich message previews
 
 `messages.embeds` advertises three generated authenticated GET operations:
 
-- `/api/v1/conversations/{id}/messages/{message}/embeds` returns `{embeds: [...]}` with each card's stable `index`, destination `url`, `kind`, plain-text title/description/site, image availability and optional validated YouTube ID. Only retained, visible, undeleted messages qualify.
+- `/api/v1/conversations/{id}/messages/{message}/embeds` returns `{embeds: [...]}` with each card's stable `index`, destination `url`, `kind`, plain-text title/description/site, optional author/published time/theme color, image availability and optional validated YouTube ID. Only retained, visible, undeleted messages qualify.
 - `/api/v1/conversations/{id}/messages/{message}/embeds/image?index=0` returns checked image bytes. Use an authenticated fetch and a revocable object URL; do not put bearer tokens in image URLs.
 - `/api/v1/attachments/{id}/metadata` returns authorized attachment metadata before choosing automatic image display or explicit video download.
 

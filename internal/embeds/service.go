@@ -38,6 +38,9 @@ type Preview struct {
 	Image       bool   `json:"image"`
 	ImageAlt    string `json:"image_alt,omitempty"`
 	YouTubeID   string `json:"youtube_id,omitempty"`
+	Author      string `json:"author_name,omitempty"`
+	PublishedAt string `json:"published_at,omitempty"`
+	ThemeColor  string `json:"theme_color,omitempty"`
 	ImageURL    string `json:"-"`
 	Asset       *Asset `json:"-"`
 }
@@ -251,6 +254,9 @@ func (s *Service) fetchPage(ctx context.Context, u *url.URL) (Preview, error) {
 	p.Description = first(meta["og:description"], meta["twitter:description"], meta["description"])
 	p.SiteName = first(meta["og:site_name"], p.SiteName)
 	p.ImageAlt = clean(meta["og:image:alt"], 160)
+	p.Author = clean(first(meta["article:author"], meta["author"]), 120)
+	p.PublishedAt = published(first(meta["article:published_time"], meta["date"], meta["datepublished"]))
+	p.ThemeColor = themeColor(meta["theme-color"])
 	if raw := first(meta["og:image:secure_url"], meta["og:image"], meta["og:image:url"], meta["twitter:image"], meta["twitter:image:src"]); raw != "" {
 		if image, err := response.Request.URL.Parse(raw); err == nil {
 			if valid, err := ParseURL(image.String()); err == nil {
@@ -310,7 +316,7 @@ func metadata(data []byte) (map[string]string, string) {
 					}
 				}
 				switch key {
-				case "og:title", "twitter:title", "og:description", "twitter:description", "description", "og:site_name", "og:image:alt", "og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src":
+				case "og:title", "twitter:title", "og:description", "twitter:description", "description", "og:site_name", "og:image:alt", "og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src", "article:author", "author", "article:published_time", "date", "datepublished", "theme-color":
 					if values[key] == "" {
 						values[key] = clean(value, 2048)
 					}
@@ -338,6 +344,30 @@ func first(values ...string) string {
 		}
 	}
 	return ""
+}
+func published(value string) string {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
+}
+func themeColor(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) != 4 && len(value) != 7 {
+		return ""
+	}
+	if value[0] != '#' {
+		return ""
+	}
+	for _, r := range value[1:] {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return ""
+		}
+	}
+	return value
 }
 func clean(s string, limit int) string {
 	s = strings.Map(func(r rune) rune {

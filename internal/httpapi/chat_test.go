@@ -110,6 +110,20 @@ func TestMessagesDMIsolationAndConcurrentOrdering(t *testing.T) {
 	f.call(t, "GET", "/api/v1/conversations/"+dm.ID+"/messages", f.owner.Token, nil, 404, nil)
 	f.call(t, "GET", "/api/v1/conversations/"+dm.ID+"/messages", bob.Token, nil, 200, nil)
 	message := sendMessage(t, f, alice.Token, channel.ID, "original")
+	replyRequest := identity.NewID()
+	var reply chat.Message
+	f.call(t, "POST", "/api/v1/conversations/"+channel.ID+"/messages", bob.Token, map[string]any{
+		"body": "a reply", "request_id": replyRequest, "reply_to_id": message.ID,
+	}, 201, &reply)
+	if reply.ReplyToID == nil || *reply.ReplyToID != message.ID {
+		t.Fatalf("reply relationship was not preserved: %#v", reply.ReplyToID)
+	}
+	if len(reply.MentionUserIDs) != 1 || reply.MentionUserIDs[0] != alice.User.ID {
+		t.Fatalf("reply did not notify its target author: %#v", reply.MentionUserIDs)
+	}
+	f.call(t, "POST", "/api/v1/conversations/"+dm.ID+"/messages", alice.Token, map[string]any{
+		"body": "cross-conversation reply", "request_id": identity.NewID(), "reply_to_id": message.ID,
+	}, 400, nil)
 	request := map[string]any{"body": "original", "request_id": message.RequestID}
 	var retry chat.Message
 	f.call(t, "POST", "/api/v1/conversations/"+channel.ID+"/messages", alice.Token, request, 201, &retry)
@@ -127,6 +141,13 @@ func TestMessagesDMIsolationAndConcurrentOrdering(t *testing.T) {
 	f.call(t, "DELETE", "/api/v1/conversations/"+channel.ID+"/messages/"+message.ID, alice.Token, nil, 200, &edited)
 	if !edited.Deleted || edited.Body != "" {
 		t.Fatal("delete did not create a content-free tombstone")
+	}
+	var retriedReply chat.Message
+	f.call(t, "POST", "/api/v1/conversations/"+channel.ID+"/messages", bob.Token, map[string]any{
+		"body": "a reply", "request_id": replyRequest, "reply_to_id": message.ID,
+	}, 201, &retriedReply)
+	if retriedReply.ID != reply.ID {
+		t.Fatal("reply retry was not idempotent after the target was deleted")
 	}
 	// Writes through separate HTTP connections must produce unique committed
 	// ordering keys while another conversation remains independent.
@@ -157,7 +178,7 @@ func TestMessagesDMIsolationAndConcurrentOrdering(t *testing.T) {
 	}
 	var history chat.History
 	f.call(t, "GET", "/api/v1/conversations/"+channel.ID+"/messages", bob.Token, nil, 200, &history)
-	if len(history.Messages) != 13 {
+	if len(history.Messages) != 14 {
 		t.Fatalf("got %d messages", len(history.Messages))
 	}
 	for i, m := range history.Messages {

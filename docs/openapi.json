@@ -876,6 +876,12 @@
             },
             "type": "array"
           },
+          "reply_to_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "request_id": {
             "type": "string"
           },
@@ -1132,6 +1138,9 @@
       },
       "EmbedsPreview": {
         "properties": {
+          "author_name": {
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -1147,7 +1156,13 @@
           "kind": {
             "type": "string"
           },
+          "published_at": {
+            "type": "string"
+          },
           "site_name": {
+            "type": "string"
+          },
+          "theme_color": {
             "type": "string"
           },
           "title": {
@@ -1562,6 +1577,11 @@
             "description": "Nonblank body or at least one attachment. UTF-8 bytes are bounded by installation policy (at most 64 KiB).",
             "type": "string"
           },
+          "reply_to_id": {
+            "description": "Message in the same conversation to reference as a reply.",
+            "format": "uuid",
+            "type": "string"
+          },
           "request_id": {
             "format": "uuid",
             "type": "string"
@@ -1747,6 +1767,27 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "HttpapiExtensionSpeechRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "room_id": {
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "voice": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "voice"
+        ],
         "type": "object"
       },
       "HttpapiIceResponse": {
@@ -2457,6 +2498,23 @@
         "required": [
           "name",
           "permissions"
+        ],
+        "type": "object"
+      },
+      "HttpapiServerExtensionsResponse": {
+        "properties": {
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/ServerextensionExtension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "extensions"
         ],
         "type": "object"
       },
@@ -3272,6 +3330,123 @@
           "username",
           "is_owner",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ServerextensionConfiguration": {
+        "properties": {
+          "category": {
+            "enum": [
+              "tts"
+            ],
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "enabled",
+          "configured",
+          "revision",
+          "endpoint"
+        ],
+        "type": "object"
+      },
+      "ServerextensionExtension": {
+        "properties": {
+          "category": {
+            "enum": [
+              "tts"
+            ],
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "enabled",
+          "configured"
+        ],
+        "type": "object"
+      },
+      "ServerextensionSaveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "clear_token": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_token": {
+            "description": "Write-only TikTok sessionid. Omit or leave blank to keep the saved token.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "enabled",
+          "endpoint"
+        ],
+        "type": "object"
+      },
+      "ServerextensionSpeechRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "voice": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "voice"
         ],
         "type": "object"
       },
@@ -4334,6 +4509,191 @@
           }
         ],
         "summary": "Issue a temporary password and revoke sessions (Reset passwords permission; lower-ranked members only)",
+        "tags": [
+          "admin"
+        ],
+        "x-forbid-unknown-cookie": true,
+        "x-forbid-unknown-header": true,
+        "x-forbid-unknown-path": true,
+        "x-forbid-unknown-query": true
+      }
+    },
+    "/api/v1/admin/server-extensions/{id}": {
+      "get": {
+        "description": "",
+        "operationId": "getServerExtension",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerextensionConfiguration"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Read server extension configuration and credential status (owner only)",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "",
+        "operationId": "saveServerExtension",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerextensionSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerextensionConfiguration"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Configure a server extension; credentials are write-only (owner only)",
+        "tags": [
+          "admin"
+        ],
+        "x-forbid-unknown-cookie": true,
+        "x-forbid-unknown-header": true,
+        "x-forbid-unknown-path": true,
+        "x-forbid-unknown-query": true
+      }
+    },
+    "/api/v1/admin/server-extensions/{id}/test": {
+      "post": {
+        "description": "",
+        "operationId": "testServerExtension",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerextensionSpeechRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authorized file bytes. Content-Type is detected from content."
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authorized file bytes. Content-Type is detected from content."
+          },
+          "416": {
+            "description": "Unsatisfiable byte range"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Test saved provider credentials with live speech, even while disabled (owner only)",
         "tags": [
           "admin"
         ],
@@ -8496,6 +8856,120 @@
         "summary": "Update a role (ManageRoles; lower rank only)",
         "tags": [
           "roles"
+        ],
+        "x-forbid-unknown-cookie": true,
+        "x-forbid-unknown-header": true,
+        "x-forbid-unknown-path": true,
+        "x-forbid-unknown-query": true
+      }
+    },
+    "/api/v1/server-extensions": {
+      "get": {
+        "description": "",
+        "operationId": "listServerExtensions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiServerExtensionsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List server-hosted extensions without credentials",
+        "tags": [
+          "server-extensions"
+        ]
+      }
+    },
+    "/api/v1/server-extensions/{id}/speech": {
+      "post": {
+        "description": "",
+        "operationId": "serverExtensionSpeech",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HttpapiExtensionSpeechRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authorized file bytes. Content-Type is detected from content."
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authorized file bytes. Content-Type is detected from content."
+          },
+          "416": {
+            "description": "Unsatisfiable byte range"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Generate speech using this server's enabled TTS extension",
+        "tags": [
+          "server-extensions"
         ],
         "x-forbid-unknown-cookie": true,
         "x-forbid-unknown-header": true,
