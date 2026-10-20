@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -192,6 +193,47 @@ func TestRelayAuthenticationPermissionsAndAllocationBounds(t *testing.T) {
 		t.Fatal("forged relay password accepted")
 	}
 }
+
+func TestRelayShutdownWaitsForConcurrentAllocationReleases(t *testing.T) {
+	for round := 0; round < 200; round++ {
+		cfg := relayConfig(t)
+		// Concurrent shutdown testing must not depend on adjacent ports being free.
+		cfg.RelayMin, cfg.RelayMax = 49152, 65534
+		service, err := New(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		var closing sync.WaitGroup
+		for index := 0; index < 8; index++ {
+			conn, _, err := service.allocator.AllocatePacketConn(turn.AllocateListenerConfig{Network: "udp4", UserID: "concurrent-close"})
+			if err != nil {
+				service.Close()
+				close(start)
+				closing.Wait()
+				t.Fatal(err)
+			}
+			closing.Add(1)
+			go func() {
+				defer closing.Done()
+				<-start
+				conn.Close()
+			}()
+		}
+		close(start)
+		service.Close()
+		// Observe the shutdown guarantee before joining the other close callers.
+		active := service.Stats()["allocations"].(int64)
+		service.allocator.mu.Lock()
+		sockets, users := len(service.allocator.connections), len(service.allocator.users)
+		service.allocator.mu.Unlock()
+		closing.Wait()
+		if active != 0 || sockets != 0 || users != 0 {
+			t.Fatalf("round %d: shutdown left allocations=%d sockets=%d users=%d", round, active, sockets, users)
+		}
+	}
+}
+
 func TestRelayTLSListener(t *testing.T) {
 	cfg := relayConfig(t)
 	cfg.TLSAddr = "127.0.0.1:0"

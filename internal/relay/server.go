@@ -189,22 +189,28 @@ func (a *allocator) AllocatePacketConn(c turn.AllocateListenerConfig) (net.Packe
 	a.pending.Add(1)
 	a.mu.Unlock()
 	defer a.pending.Done()
-	release := func() {
-		a.mu.Lock()
+	releaseLocked := func() {
 		a.active.Add(-1)
 		a.users[c.UserID]--
 		if a.users[c.UserID] == 0 {
 			delete(a.users, c.UserID)
 		}
-		a.mu.Unlock()
 	}
 	conn, address, err := a.generator.AllocatePacketConn(c)
 	if err != nil {
-		release()
+		a.mu.Lock()
+		releaseLocked()
+		a.mu.Unlock()
 		return nil, nil, err
 	}
 	owned := &countedPacketConn{PacketConn: conn}
-	owned.release = func() { a.mu.Lock(); delete(a.connections, owned); a.mu.Unlock(); release() }
+	owned.release = func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		// Shutdown must not observe a removed socket with an outstanding count.
+		delete(a.connections, owned)
+		releaseLocked()
+	}
 	a.mu.Lock()
 	if a.closed {
 		a.mu.Unlock()
