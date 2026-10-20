@@ -67,7 +67,6 @@ mutagen*
 /temp/
 /haunt
 /haunt-server
-/chatxovg
 node_modules/
 .cache/
 __pycache__/

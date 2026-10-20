@@ -40,19 +40,19 @@ original brand kit and development dependencies are excluded from the ASAR.
 
 ## Compatibility identities
 
-Branding does not require a data migration. Existing Go module paths, npm package
-names, `HAUNT_*` environment variables, database/schema names, wire protocols,
-backup format/extension, IPC channels and storage keys remain stable. The desktop
-origin remains `https://app.chatxo.local` and its persistent Chromium partition
-remains `persist:chatxo`.
+Existing Go module paths, npm package names, `HAUNT_*` environment variables,
+database/schema names, wire protocols, backup formats, IPC channels and storage
+keys remain stable. The desktop origin remains `https://app.chatxo.local` and its
+persistent Chromium partition remains `persist:chatxo`.
 
-Packaged desktop profiles continue using the `chat.xo.vg` directory; development
-uses `chatxo-client`. Explicit `--user-data-dir` overrides are respected. Electron
-also keeps that technical application name because its macOS Keychain and Linux
-secret-store configuration derive their names from `app.getName()`; visible
-labels are set separately. See [Electron 44.7.0 browser initialization](https://github.com/electron/electron/blob/v44.7.0/shell/browser/electron_browser_main_parts.cc).
-This preserves the naming inputs; macOS Keychain migration has not been tested
-on this Linux host.
+Desktop application and notification names are Haunt. Packaged profiles use
+`haunt`; development profiles use `haunt-development`. On startup, an existing
+legacy profile is moved before the updater and browser open it. Saved sessions
+are re-encrypted using Haunt's keychain identity, with plaintext confined to a
+private process pipe. Migration failures retain the encrypted data and report
+an error; conflicting nonempty profiles are never merged or overwritten.
+Explicit `--user-data-dir` overrides retain their location, and a `haunt`
+directory override can migrate its legacy sibling.
 
 New server configurations default to Haunt. Explicitly configured server names
 and uploaded artwork remain under their operators' control.
