@@ -20,6 +20,11 @@ func updateFixtureFiles(t *testing.T, dir string) ClientUpdateEnvelope {
 	for _, name := range []string{"win32-x64", "linux-x64", "linux-arm64", "darwin-arm64"} {
 		targets[name] = updateTarget{ASAR: updateArtifact{File: name + ".asar", Size: 4, SHA256: strings.Repeat("a", 64)}, Installer: updateArtifact{File: name + ".exe", Size: 4, SHA256: strings.Repeat("b", 64)}}
 	}
+	for _, name := range []string{"linux-x64", "linux-arm64"} {
+		entry := targets[name]
+		entry.RPM = &updateArtifact{File: name + ".rpm", Size: 4, SHA256: strings.Repeat("c", 64)}
+		targets[name] = entry
+	}
 	data, _ := json.Marshal(updatePayload{Version: "0.2.0", Targets: targets})
 	envelope := ClientUpdateEnvelope{Schema: 1, Payload: base64.StdEncoding.EncodeToString(data), Signature: base64.StdEncoding.EncodeToString(make([]byte, 64))}
 	bytes, _ := json.Marshal(envelope)
@@ -31,7 +36,7 @@ func updateFixtureFiles(t *testing.T, dir string) ClientUpdateEnvelope {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"win32-x64.exe", "win32-x64.asar", "unlisted.exe"} {
+	for _, name := range []string{"win32-x64.exe", "win32-x64.asar", "linux-x64.rpm", "unlisted.exe"} {
 		if err := os.WriteFile(filepath.Join(dir, "client-v0.2.0", name), []byte("test"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -82,12 +87,15 @@ func TestClientUpdateMirrorAuthorizationAndFiles(t *testing.T) {
 	for _, name := range []string{"unlisted.exe", "missing.exe"} {
 		f.call(t, "GET", "/api/v1/client-updates/0.2.0/"+name, f.owner.Token, nil, 404, nil)
 	}
-	url := "/api/v1/client-updates/0.2.0/win32-x64.exe"
-	f.call(t, "GET", url, "", nil, 401, nil)
-	status, data, err := f.request("GET", url, f.owner.Token, nil)
-	if err != nil || status != 200 || string(data) != "test" {
-		t.Fatal(status, string(data), err)
+	for _, name := range []string{"win32-x64.exe", "linux-x64.rpm"} {
+		url := "/api/v1/client-updates/0.2.0/" + name
+		f.call(t, "GET", url, "", nil, 401, nil)
+		status, data, err := f.request("GET", url, f.owner.Token, nil)
+		if err != nil || status != 200 || string(data) != "test" {
+			t.Fatal(status, string(data), err)
+		}
 	}
+	url := "/api/v1/client-updates/0.2.0/win32-x64.exe"
 	req, _ := http.NewRequest("GET", f.server.URL+url, nil)
 	req.Header.Set("Authorization", "Bearer "+f.owner.Token)
 	req.Header.Set("Range", "bytes=1-2")

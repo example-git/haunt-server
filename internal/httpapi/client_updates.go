@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/example-git/haunt-server/internal/config"
@@ -40,9 +41,19 @@ type updateArtifact struct {
 	SHA256 string `json:"sha256"`
 }
 type updateTarget struct {
-	ASAR      updateArtifact `json:"asar"`
-	Installer updateArtifact `json:"installer"`
+	ASAR      updateArtifact  `json:"asar"`
+	Installer updateArtifact  `json:"installer"`
+	RPM       *updateArtifact `json:"rpm,omitempty"`
 }
+
+func (t updateTarget) artifacts() []updateArtifact {
+	assets := []updateArtifact{t.ASAR, t.Installer}
+	if t.RPM != nil {
+		assets = append(assets, *t.RPM)
+	}
+	return assets
+}
+
 type updatePayload struct {
 	Version string                  `json:"version"`
 	Targets map[string]updateTarget `json:"targets"`
@@ -101,7 +112,10 @@ func decodeUpdateManifest(reader io.Reader) (ClientUpdateEnvelope, updatePayload
 		if !ok {
 			return envelope, payload, errors.New("missing release target")
 		}
-		for _, asset := range []updateArtifact{entry.ASAR, entry.Installer} {
+		if entry.RPM != nil && (!strings.HasPrefix(target, "linux-") || !strings.HasSuffix(entry.RPM.File, ".rpm")) {
+			return envelope, payload, errors.New("invalid RPM installer")
+		}
+		for _, asset := range entry.artifacts() {
 			if !releaseFilename.MatchString(asset.File) || !releaseDigest.MatchString(asset.SHA256) || asset.Size < 1 || asset.Size > 1<<30 {
 				return envelope, payload, errors.New("invalid release file")
 			}
@@ -198,7 +212,7 @@ func (a *api) clientUpdateRoutes(mux routeRegistrar, c config.Config) {
 		}
 		var asset updateArtifact
 		for _, target := range payload.Targets {
-			for _, candidate := range []updateArtifact{target.ASAR, target.Installer} {
+			for _, candidate := range target.artifacts() {
 				if candidate.File == r.PathValue("name") {
 					asset = candidate
 				}

@@ -69,8 +69,8 @@ func TestPublicClientUpdateRoutes(t *testing.T) {
 		}
 	}
 	for _, version := range []string{"0.2.0", "client-v0.2.0"} {
-		response = request(version + "/linux-x64.exe")
-		if response.Code != http.StatusFound || response.Header().Get("Location") != upstream.URL+"/client-v0.2.0/linux-x64.exe" {
+		response = request(version + "/linux-x64.rpm")
+		if response.Code != http.StatusFound || response.Header().Get("Location") != upstream.URL+"/client-v0.2.0/linux-x64.rpm" {
 			t.Fatal(response.Code, response.Header())
 		}
 	}
