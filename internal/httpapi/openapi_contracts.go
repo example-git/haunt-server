@@ -151,6 +151,7 @@ func endpointContracts() map[string]endpointContract {
 	add("PUT /api/v1/me/profile", "updateProfile", "Update your display name, bio and avatar color", identity.ProfileSettingsRequest{}, identity.User{}, 200)
 	add("PUT /api/v1/admin/audio-plugins/default", "setDefaultAudioPlugin", "Save default plugin, model and controls for new clients (ManageConfiguration)", audioplugin.Preferences{}, audioplugin.Preferences{}, 200)
 	add("GET /api/v1/audio-plugins", "listAudioPlugins", "List local audio plugins and integrity hashes", nil, AudioPluginsResponse{}, 200)
+	add("POST /api/v1/admin/server-extensions/reload", "reloadServerExtensions", "Reload locally installed extension packages and their menus (ManageConfiguration or Administrator)", nil, ServerExtensionsResponse{}, 200)
 	add("GET /api/v1/server-extensions", "listServerExtensions", "List server-hosted extensions without credentials", nil, ServerExtensionsResponse{}, 200)
 	add("GET /api/v1/admin/server-extensions/{id}", "getServerExtension", "Read server extension configuration and credential status (ManageConfiguration or Administrator)", nil, serverextension.Configuration{}, 200)
 	add("PUT /api/v1/admin/server-extensions/{id}", "saveServerExtension", "Configure a server extension; credentials are write-only (ManageConfiguration or Administrator)", serverextension.SaveRequest{}, serverextension.Configuration{}, 200)

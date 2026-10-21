@@ -36,9 +36,9 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | GET | `/api/v1/channels/{id}` | Get a channel and effective permissions | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/menu` | Permission-filtered declarative channel settings and context menu | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/permissions` | Get permission overrides | Bearer | 200 |
-| GET | `/api/v1/client-updates/haunt-updates.json` | Get the signed desktop update manifest | Public | 200 |
-| GET | `/api/v1/client-updates/installers` | List available desktop installers and public download links when enabled | Public | 200 |
-| GET | `/api/v1/client-updates/{version}/{name}` | Download a local desktop artifact or redirect to its public release | Public | 200 |
+| GET | `/api/v1/client-updates/haunt-updates.json` | Get the signed desktop update manifest | Public feed / Bearer local | 200 |
+| GET | `/api/v1/client-updates/installers` | List available desktop installers and public download links when enabled | Public feed / Bearer local | 200 |
+| GET | `/api/v1/client-updates/{version}/{name}` | Download a local desktop artifact or redirect to its public release | Public feed / Bearer local | 200 |
 | GET | `/api/v1/conversations` | List accessible text/voice channel chats and DMs | Bearer | 200 |
 | GET | `/api/v1/conversations/{id}/encryption` | Get participant device credentials and unused key packages | Bearer | 200 |
 | GET | `/api/v1/conversations/{id}/encryption/events` | Read ordered MLS group commits and welcome messages | Bearer | 200 |
@@ -78,6 +78,7 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | POST | `/api/v1/admin/maintenance` | Run bounded maintenance (requires the corresponding server permission) | Bearer | 204 |
 | POST | `/api/v1/admin/members/{id}/moderate` | Kick, ban, restore or delete a lower-ranked member | Bearer | 204 |
 | POST | `/api/v1/admin/members/{id}/password-reset` | Issue a temporary password and revoke sessions (Reset passwords permission; lower-ranked members only) | Bearer | 200 |
+| POST | `/api/v1/admin/server-extensions/reload` | Reload locally installed extension packages and their menus (ManageConfiguration or Administrator) | Bearer | 200 |
 | POST | `/api/v1/admin/server-extensions/{id}/test` | Test saved provider credentials with live speech, even while disabled (ManageConfiguration or Administrator) | Bearer | 200 |
 | POST | `/api/v1/admin/storage` | Verify write/read/delete access and register private attachment storage (ManageConfiguration) | Bearer | 201 |
 | POST | `/api/v1/admin/storage/{id}/check` | Verify provider write/read/delete access (ManageConfiguration) | Bearer | 204 |

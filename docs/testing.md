@@ -14,13 +14,13 @@ saves audible-playback and decoded-video samples. See the client's
 the physical-device/automatic-upgrade matrix. Independent encryption review has
 a separate [review brief and source-packet command](security-review.md).
 
-After deploying an exact release, compare both public hostnames with its extracted
-`web/` directory and the existing installation ID:
+After deploying a release, compare its public hostname with the extracted
+`web/` directory and the installation ID. Repeat `--origin` for configured aliases:
 
 ```sh
-python3 scripts/check-deployment.py --origin https://haunt.xo.vg \
-  --origin https://chat-test.xo.vg --web RELEASE/web \
-  --instance EXISTING-INSTALLATION-ID --output var/deployment-check.json
+python3 scripts/check-deployment.py --origin https://chat.example.com \
+  --web /path/to/release/web --instance EXISTING-INSTALLATION-ID \
+  --output /path/to/deployment-check.json
 ```
 
 This requires live health/readiness, the preserved installation identity, the

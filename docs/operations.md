@@ -8,13 +8,13 @@ The server targets Linux amd64 and arm64. Packages contain a static Go executabl
 
 ## Provision one installation
 
-1. Choose a dedicated application database and restricted database role with permission to manage that database's `haunt` schema. Provisioning is an operator action; the server does not create a database or configure PostgreSQL. Never point a test run at a deployed database.
+1. Choose a dedicated application database and restricted database role with permission to manage that database's `chatxo` schema. Provisioning is an operator action; the server does not create a database or configure PostgreSQL. Never point a test run at a deployed database.
 2. Choose a persistent data directory and normal service listener. On a fresh installation, open the private first-time setup link printed at startup. The [wizard](first-run.md) saves a stable installation ID, walks through the public URL and dedicated database connection, and lets you choose the owner password. Explicit environment settings remain available through `.env.example` and are shown as locked fields; unattended installs may supply bootstrap credentials. Protect configuration files from other users. The program reads process environment variables, not `.env` files automatically. Preserve the installation ID and saved configuration with all backups.
 3. Install the binary matching `uname -m` (`x86_64` → amd64, `aarch64` → arm64). Verify the archive's SHA-256 checksum. The default service example uses `/usr/local/bin/haunt`, a dedicated `haunt` account, `/etc/haunt.env`, and `/var/lib/haunt` for both its working directory and writable state. Set `HAUNT_DATA_DIR=/var/lib/haunt` in that environment.
 4. Review `deploy/haunt.service` for the chosen paths/user, then install it through the host's normal service-management procedure. First startup migrates the application schema and creates the owner. Remove bootstrap credentials after successful provisioning. Later starts preserve the installation and owner password; incompatible identity/newer schema fails startup.
 5. Place HTTPS in front of the loopback HTTP listener. Configure only explicit browser origins. `/healthz` is process liveness; `/readyz` checks the database/identity schema. Neither proves public media connectivity.
 
-Only one application process may own the installation's attachment directory. Startup takes its filesystem lock before retention maintenance; a rejected second process cannot prune the active process's message history through a different policy. Changing policy requires restart. Lowering the text cap can immediately prune old history.
+Only one application process may own the installation's attachment directory. Startup takes its filesystem lock before retention maintenance; a rejected second process cannot prune the active process's message history through a different policy. Runtime policy changes apply without restart. Lowering the channel text cap can prune channel history; DM storage has separate limits and full-storage behavior. See [runtime settings](runtime-settings.md).
 
 ## HTTPS proxy or cloudflared container
 
@@ -33,7 +33,7 @@ For a remotely managed Cloudflare Tunnel, use `deploy/compose.cloudflared.yml`. 
 - Put the tunnel token in a protected file readable by container UID 65532, with parent-directory access restricted appropriately. `CLOUDFLARED_TOKEN_FILE` is its host path; no token is passed on the command line. Compose file-backed secrets preserve host file ownership/permissions, so verify readability before starting.
 - Start this dedicated Compose project using the reviewed file and explicit variables. For example, with the token-file path exported: `docker compose --env-file /dev/null -f deploy/compose.cloudflared.yml up -d cloudflared`. Do not reuse another service's Compose project or container.
 
-In cloudflared mode, trusted client IP extraction uses `CF-Connecting-IP`, not caller-supplied forwarding chains. The connector uses QUIC where available, falling back to HTTP/2. The default does not require an inbound UDP media port: without external TURN, encoded media travels over WSS. Optional external/Cloudflare TURN keeps media on WebRTC; see [media-transports.md](media-transports.md). Live Cloudflare account/tunnel deployment still needs verification with the operator's actual hostname and credentials.
+In cloudflared mode, trusted client IP extraction uses `CF-Connecting-IP`, not caller-supplied forwarding chains. The connector uses QUIC where available, falling back to HTTP/2. The default does not require an inbound UDP media port: without external TURN, encoded media travels over WSS. Optional external/Cloudflare TURN keeps media on WebRTC; see [media-transports.md](media-transports.md). Verify public API access and media connectivity through the configured tunnel hostname.
 
 ## Public VM and optional host relay
 
@@ -75,9 +75,9 @@ The command resets the existing owner password, revokes owner sessions and exits
 
 ## Capacity, maintenance and logs
 
-Owner-only `/api/v1/admin/stats` exposes logical quotas, database/relation/index sizes, dead-tuple estimates, pool pressure, quota-lock timing, event queues, SFU queues/peers, relay allocations and Cloudflare credential request/failure counts. `/api/v1/admin/maintenance` runs bounded cleanup; the regular maintenance interval is one minute.
+`/api/v1/admin/stats` requires `ManageConfiguration` and exposes logical quotas, database/relation/index sizes, dead-tuple estimates, pool pressure, quota-lock timing, event queues, SFU queues/peers, relay allocations and Cloudflare credential request/failure counts. `/api/v1/admin/maintenance` requires the same permission and runs bounded cleanup; the regular maintenance interval is one minute.
 
-The 256,000,000-byte text budget includes retained message and replay JSON accounting, not PostgreSQL indexes, metadata, WAL, old snapshots, backups or logs. Deletion allows PostgreSQL space reuse; it does not immediately shrink files. The 1 GiB attachment budget includes reserved uploads and failed physical deletions until cleanup succeeds. Monitor host disk usage and PostgreSQL vacuum/replication/WAL independently. WAL metrics in the API are cumulative cluster activity, not application-only bytes on disk.
+The default 256,000,000-byte channel text budget includes retained message and replay JSON accounting, not PostgreSQL indexes, metadata, WAL, old snapshots, backups or logs. Deletion allows PostgreSQL space reuse; it does not immediately shrink files. The 1 GiB attachment budget includes reserved uploads and failed physical deletions until cleanup succeeds. Monitor host disk usage and PostgreSQL vacuum/replication/WAL independently. WAL metrics in the API are cumulative cluster activity, not application-only bytes on disk.
 
 The executable emits structured logs to stdout. The systemd example rate-limits service logs; configure the host journal's size/retention for an actual disk budget. The cloudflared example rotates three 10 MiB log files. Neither example changes another service's logging policy.
 
@@ -85,6 +85,6 @@ Default room/peer/queue limits are safety bounds, not measured call-capacity gua
 
 ## Community appearance
 
-The owner can update the server name, description, accent, icon and banner in the client's Server settings. These changes persist in PostgreSQL and take effect without a restart; a saved name overrides `HAUNT_NAME`. Avatars and server artwork do not expire with message attachments, and are included in the database backup. Schema version 5 is applied by the normal startup migration. Run only one process against an installation while migrating.
+Members with `ManageServer`, including owners and Administrators, can update the server name, description, accent, icon and banner in the client's Server settings. These changes persist in PostgreSQL and take effect without a restart; a saved name overrides `HAUNT_NAME`. Avatars and server artwork do not expire with message attachments, and are included in the database backup. Schema version 5 is applied by the normal startup migration. Run only one process against an installation while migrating.
 
 Schema version 6 adds mention IDs, persistent read positions, unread indexes and committed gateway wake triggers. Startup backfills mentions in existing retained messages and updates their JSON byte accounting. The gateway opens one dedicated LISTEN connection in addition to the request pool; include it in PostgreSQL connection capacity. No external broker or client transport setting is required. Run a single server process per installation during migration, as for earlier versions.

@@ -114,8 +114,8 @@ seen. A shared public IP or range can affect multiple people. Account bans alone
 cannot recognize a new identity registered with another valid invitation.
 
 At most 1024 active network bans are accepted. Private IP values in ban and audit
-responses require the separate IP-view permission. IP records begin when this
-version sees account activity; old sessions do not magically supply historical IPs.
+responses require the separate IP-view permission. IP history begins when the
+server observes authenticated account activity.
 
 ## Appeals and audit history
 
@@ -134,8 +134,8 @@ Appeal bodies expire after 180 days; the ban retains its last-submission timesta
 
 Audit records contain time, action, actor/target, reason, and the server-observed IP
 when available. Passwords, bearer tokens, appeal tickets and request bodies are
-never audit fields. Existing settings routes log successful actions after commit;
-new moderation/role/message actions log atomically. Denied access is sampled once
+never audit fields. Settings routes log successful actions after commit;
+moderation, role and message actions log atomically. Denied access is sampled once
 per source/action/minute, with a global budget of 60 writes/minute. Authenticated
 permission failures retain the actor ID. This is a bounded application audit trail,
 not a packet log; requests rejected by nginx are visible in nginx's logs instead.

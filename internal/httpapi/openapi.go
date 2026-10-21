@@ -131,11 +131,17 @@ func GenerateDocuments() (APIDocuments, error) {
 		if contract.websocket {
 			auth = "First WebSocket frame"
 		}
+		if strings.HasPrefix(path, "/api/v1/client-updates/") {
+			auth = "Public feed / Bearer local"
+		}
 		var fields []reflect.StructField
 		for _, part := range strings.Split(path, "/") {
 			if strings.HasPrefix(part, "{") {
 				name := strings.Trim(part, "{}")
 				tag := reflect.StructTag(`path:"` + name + `" format:"uuid"`)
+				if name == "id" && strings.Contains(path, "/server-extensions/") {
+					tag = reflect.StructTag(`path:"id" pattern:"^[a-z][a-z0-9-]{0,63}$"`)
+				}
 				if name == "name" {
 					tag = reflect.StructTag(`path:"name" pattern:"^[a-z0-9_]{2,32}$"`)
 				}

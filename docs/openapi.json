@@ -1782,6 +1782,7 @@
             "type": "string"
           },
           "text": {
+            "description": "Text limited to 500 UTF-8 bytes.",
             "maxLength": 500,
             "type": "string"
           },
@@ -2195,6 +2196,9 @@
             "type": "string"
           },
           "context_label": {
+            "type": "string"
+          },
+          "extension_id": {
             "type": "string"
           },
           "form": {
@@ -3350,11 +3354,32 @@
           "configured": {
             "type": "boolean"
           },
+          "configured_secrets": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "default_voice": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
           "enabled": {
             "type": "boolean"
           },
-          "endpoint": {
-            "type": "string"
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ServerextensionField"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "id": {
             "type": "string"
@@ -3366,16 +3391,42 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "voice_pattern": {
+            "type": "string"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/ServerextensionVoice"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
           "id",
           "name",
+          "description",
           "category",
           "enabled",
           "configured",
+          "voices",
+          "default_voice",
           "revision",
-          "endpoint"
+          "fields",
+          "values",
+          "configured_secrets"
         ],
         "type": "object"
       },
@@ -3390,6 +3441,12 @@
           "configured": {
             "type": "boolean"
           },
+          "default_voice": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -3398,43 +3455,123 @@
           },
           "name": {
             "type": "string"
+          },
+          "voice_pattern": {
+            "type": "string"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/ServerextensionVoice"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
           "id",
           "name",
+          "description",
           "category",
           "enabled",
-          "configured"
+          "configured",
+          "voices",
+          "default_voice"
+        ],
+        "type": "object"
+      },
+      "ServerextensionField": {
+        "properties": {
+          "default": {
+            "type": "string"
+          },
+          "help": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max_length": {
+            "type": "integer"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ServerextensionOption"
+            },
+            "type": "array"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "type": {
+            "enum": [
+              "text",
+              "password",
+              "select"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ServerextensionOption": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
         ],
         "type": "object"
       },
       "ServerextensionSaveRequest": {
         "additionalProperties": false,
         "properties": {
-          "clear_token": {
-            "type": "boolean"
+          "clear_secrets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "enabled": {
             "type": "boolean"
-          },
-          "endpoint": {
-            "type": "string"
           },
           "revision": {
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
-          "session_token": {
-            "description": "Write-only TikTok sessionid. Omit or leave blank to keep the saved token.",
-            "type": "string"
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
           }
         },
         "required": [
           "revision",
           "enabled",
-          "endpoint"
+          "values"
         ],
         "type": "object"
       },
@@ -3442,6 +3579,7 @@
         "additionalProperties": false,
         "properties": {
           "text": {
+            "description": "Text limited to 500 UTF-8 bytes.",
             "maxLength": 500,
             "type": "string"
           },
@@ -3453,6 +3591,24 @@
         "required": [
           "text",
           "voice"
+        ],
+        "type": "object"
+      },
+      "ServerextensionVoice": {
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
         ],
         "type": "object"
       },
@@ -4524,6 +4680,43 @@
         "x-forbid-unknown-query": true
       }
     },
+    "/api/v1/admin/server-extensions/reload": {
+      "post": {
+        "description": "",
+        "operationId": "reloadServerExtensions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiServerExtensionsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Reload locally installed extension packages and their menus (ManageConfiguration or Administrator)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/admin/server-extensions/{id}": {
       "get": {
         "description": "",
@@ -4534,7 +4727,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "format": "uuid",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
               "type": "string"
             }
           }
@@ -4580,7 +4773,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "format": "uuid",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
               "type": "string"
             }
           }
@@ -4642,7 +4835,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "format": "uuid",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
               "type": "string"
             }
           }
@@ -8899,7 +9092,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "format": "uuid",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
               "type": "string"
             }
           }

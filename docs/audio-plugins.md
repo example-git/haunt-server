@@ -67,7 +67,7 @@ happen in a dedicated worker, never on the UI/audio thread. Initialization is bo
 to five seconds; a missing worker heartbeat for 1.5 seconds terminates it. Each graph
 has at most two outstanding PCM frames and two queued output frames. Output is checked
 for finite samples and clamped. Failure returns to raw microphone capture; echo
-cancellation remains disabled. No hidden replacement denoiser is enabled.
+cancellation remains disabled.
 
 The package-size cap is not a CPU-cost guarantee. A slow or malicious module can
 consume a worker's CPU until its watchdog fires; the host bounds recovery but cannot

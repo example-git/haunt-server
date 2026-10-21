@@ -25,8 +25,7 @@ Changing runtime configuration carries its revision to prevent lost edits.
 `internal/httpapi/menus.go` is the server-side definition registry. Add a page
 there and an independently authenticated endpoint to expand settings without
 changing the client. The generated OpenAPI documentation describes the manifest.
-The live Limits & access form and channel deletion already use this protocol.
-Complex builtin editors and older servers retain their existing behavior.
+The Limits & access form and channel deletion use this protocol.
 
 The renderer never evaluates server strings, HTML or expressions. Paths must be
 literal same-server `/api/v1/` resources, with no URL escapes, traversal, query

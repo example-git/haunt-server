@@ -1,8 +1,8 @@
 # Live server configuration and attachment storage
 
 Server settings contains **Limits & access** and **Storage providers** for owners
-and roles with **Manage server configuration & storage** (`16384`). The existing
-ManageServer permission (`32`) still controls appearance and emojis.
+and roles with **Manage server configuration & storage** (`16384`).
+ManageServer permission (`32`) controls appearance and emojis.
 
 Configuration is stored in PostgreSQL. Until the first save, environment settings
 remain the defaults. After a save, the persisted policy wins across restarts.
@@ -16,7 +16,8 @@ The following settings apply without a restart:
 | Image/video upload sizes | New attachment reservations; actual content is checked |
 | Attachment storage budget | All providers combined, including in-flight reservations; cannot be set below used space |
 | Attachment retention | Expiry for new uploads; existing expiry dates remain intact |
-| Message budget and retention | Reads immediately honor age; writes and periodic maintenance prune oldest retained data |
+| Channel message budget and retention | Reads honor age immediately; writes and maintenance prune oldest retained channel data |
+| DM text budget and retention | Independent budget; full storage rejects writes; zero age retention keeps messages until deletion |
 | Voice room and media-connection limits | New admissions/connections; existing calls remain connected |
 | Invitation registration | Allows or closes new registrations; invitations are still required |
 | Temporary session duration | New nonremembered sessions and devices that turn off Remember me; remembered logins remain indefinite |

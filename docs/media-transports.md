@@ -1,6 +1,6 @@
 # Media hosting and client protocol
 
-Transport is an installation setting. Clients read `transport` from an authorized voice admission and connect automatically. The product should expose call controls, not a transport selector. Both paths use the same rooms, participants, device sessions, mute/deafen state and permission revocation.
+Transport is an installation setting. Clients read `transport` from an authorized voice admission and connect automatically. Client call controls use the installation's transport policy. Both paths use the same rooms, participants, device sessions, mute/deafen state and permission revocation.
 
 | Host settings | Admission transport | Network path |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Transport is an installation setting. Clients read `transport` from an authorize
 
 STUN alone does not count as an external relay. The optional built-in relay does not make a host behind an HTTP tunnel publicly reachable, so it does not suppress the WebSocket fallback. Configured but unavailable external TURN produces an explicit media error; it does not silently change the protocol during a call.
 
-## External TURN on Oracle or another host
+## External TURN
 
 Set `HAUNT_MEDIA_TURN_HOST` to an IP or DNS hostname without a scheme/port, plus `HAUNT_MEDIA_TURN_USERNAME` and `HAUNT_MEDIA_TURN_PASSWORD`. UDP and TCP use `HAUNT_MEDIA_TURN_PORT` (3478 by default). An optional `HAUNT_MEDIA_TURN_TLS_PORT` adds TURN over TLS; use a hostname matching its certificate. The operator supplies the TURN service and firewall rules. The shortcut provides credentials to authorized callers, so use a dedicated restricted relay account. `HAUNT_ICE_SERVERS` supports advanced ICE JSON configuration.
 
@@ -37,10 +37,10 @@ The machine-readable [websocket.json](websocket.json) is generated from the serv
 1. Create a voice admission. For `transport=websocket`, `media_path` is `/api/v1/media` and no ICE servers are required.
 2. Authenticate `/api/v1/events` and consume the admission with `media.join`.
 3. Open `/api/v1/media` and send `{type:"authenticate",token,participant_id}` within five seconds. The joined participant must belong to that exact device session. Wait for `ready` with protocol `chatxo-encoded-v1`.
-4. Send `configure` with up to three tracks, one per purpose (`audio`, `camera`, `screen`). Use a WebCodecs codec identifier, decoder configuration as base64 `description`, and the applicable dimensions or sample rate/channel count. Empty tracks stops publication. Wait for the server's `tracks` response and its assigned revision.
+4. Send `configure` with up to five tracks, one per purpose (`audio`, `camera`, `screen`, `camera_audio`, `screen_audio`). Use a WebCodecs codec identifier, decoder configuration as base64 `description`, and the applicable dimensions or sample rate/channel count. Empty tracks stops publication. Wait for the server's `tracks` response and its assigned revision.
 5. Send one encoded elementary chunk per binary message. The 24-byte input header contains version, purpose, key/delta flag, reserved byte, revision, microsecond timestamp, microsecond duration and sequence. Sequence numbers are independent per track and contiguous after the first, including uint32 wrap. Output prepends the publisher's authenticated 16-byte UUID. Receivers use the declared decoder configuration and timestamps.
 6. Honor `keyframe` requests for camera/screen. New receivers and resumed video wait for a keyframe. Reattaching a media socket requires reconfiguration and a new revision. Losing the event socket requires a new admission and participant as well.
 
 Limits include 512 KiB per input frame, 64 KiB per audio frame, 8 MiB/s and 600 input frames/s with bounded bursts. Each receiver queue holds at most 64 frames/2 MiB; overflow disconnects that receiver. Control messages and keyframe requests are rate limited. Clients must regulate bitrate and send buffering, synchronize audio/video, and handle reconnects. Reliable WebSocket delivery can increase latency under packet loss.
 
-Browsers require WebCodecs encoders/decoders and compatible codecs; desktop clients can use native codec APIs with the same framing. Runtime checks on this host covered Chrome VP8/Opus and FFmpeg H264 through the fallback. This is a server protocol harness, not an implemented product client or a claim of compatibility with every browser/device.
+Browsers require WebCodecs encoders/decoders and compatible codecs; desktop clients can use native codec APIs with the same framing. Device and browser compatibility checks are described in [testing](testing.md).

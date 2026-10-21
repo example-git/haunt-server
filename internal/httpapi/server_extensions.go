@@ -48,6 +48,14 @@ func (f *Features) serverExtensionRoutes(a *api, mux routeRegistrar) {
 			operation(w, r, principal)
 		})
 	}
+	mux.HandleFunc("POST /api/v1/admin/server-extensions/reload", manage(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
+		if err := f.Extensions.Reload(); err != nil {
+			extensionFailure(w, err)
+			return
+		}
+		_ = a.identity.RecordAudit(r.Context(), principal.User.ID, "", "server_extension.reloaded", "")
+		writeJSON(w, 200, ServerExtensionsResponse{Extensions: f.Extensions.Catalog()})
+	}))
 	mux.HandleFunc("GET /api/v1/server-extensions", a.authenticated(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
 		writeJSON(w, 200, ServerExtensionsResponse{Extensions: f.Extensions.Catalog()})
 	}))
@@ -61,7 +69,7 @@ func (f *Features) serverExtensionRoutes(a *api, mux routeRegistrar) {
 	}))
 	mux.HandleFunc("PUT /api/v1/admin/server-extensions/{id}", manage(func(w http.ResponseWriter, r *http.Request, principal identity.Principal) {
 		var request serverextension.SaveRequest
-		if err := decodeLimit(w, r, &request, 4096); err != nil {
+		if err := decodeLimit(w, r, &request, 256*1024); err != nil {
 			a.fail(w, r, err)
 			return
 		}

@@ -1,3 +1,5 @@
+![Haunt](../../../assets/haunt-wordmark.png)
+
 # Bundled RNNoise package
 
 Source: https://github.com/example-git/haunt-audio-rnnoise

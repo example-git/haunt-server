@@ -39,7 +39,7 @@ ceiling, not a guaranteed network bitrate; WebRTC can adapt to congestion.
 Microphone capture is mono; camera and screen audio request stereo where the
 source supplies it. The WebSocket PCM adapter preserves the two source channels.
 The server advertises full-band stereo support and forwards encoded media without
-transcoding. Both client and server updates are needed for the full negotiation.
+transcoding.
 
 ### Sample rates and device conversion
 

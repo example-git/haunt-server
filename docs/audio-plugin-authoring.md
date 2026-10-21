@@ -26,8 +26,8 @@ Read the client tutorial for exact function signatures, scaling and lifecycle.
 
 Test finite, bounded output, initialization, reset and each variant. Compare
 saved original and filtered speech clips, including quiet/loud speech, silence,
-keyboard/fan noise and competing speech. Process clips serially at low priority;
-retain results. A synthetic smoke check proves the ABI, not speech quality.
+keyboard/fan noise and competing speech. A synthetic smoke check verifies the
+ABI; listening comparisons assess speech quality.
 
 ## 2. Package only the supported files
 
@@ -83,9 +83,9 @@ Both require a normal authenticated administrator session.
 ## 4. Verify the user experience
 
 Enable **Noise suppression** in Devices, then choose the plugin in **User settings
-→ Server audio plugins → Active Server Audio Plugin:**. This is the active
-microphone processor selector, not just a settings-page selector. The model
-selector chooses a variant within that plugin. Changes apply during calls and
+→ Server audio plugins → Active Server Audio Plugin:**. Selection changes the
+active microphone processor. The model selector chooses a variant within that
+plugin. Changes apply during calls and
 microphone preview; the selected model and tuning persist locally per server and plugin.
 
 Owners and administrators with ManageConfiguration can click **Set as server
@@ -107,7 +107,7 @@ are explicit, not automatic tracking of a moving Git branch.
 
 RNNoise is the bundled default for fresh Haunt installations. The server's pinned
 copy lives under `internal/audioplugin/default/`; update its ZIP, checksums, build
-metadata, notices and recorded source revision together. Normal third-party
-plugins belong in server data, never in the public source or runtime image.
+metadata, notices and recorded source revision together. Operator-installed
+packages are stored in the server's data directory.
 Existing operator plugins and defaults intentionally removed by an operator are
 preserved across restarts and server upgrades.

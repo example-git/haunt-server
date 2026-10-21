@@ -1,3 +1,5 @@
+![Haunt](assets/haunt-wordmark.png)
+
 # Haunt Server
 
 This repository contains the Go server, database migrations, container runtime,
@@ -9,6 +11,8 @@ The server provides independently hosted accounts, channels, direct messages,
 voice/video calls, permissions, moderation, file storage, and client update
 distribution. It is under active development and has not received an independent
 security audit.
+
+![Haunt community chat with a voice call](assets/09-voice-pip.png)
 
 ## Independent servers, one client
 
@@ -77,12 +81,6 @@ PostgreSQL and the Haunt server, with automatic HTTPS and a persistent data
 volume. Follow the [container quick start](docs/container.md). Linux amd64 and
 arm64 are supported; the standalone binary workflow below is also available.
 
-**Prebuilt-container port boundary:** client traffic enters bundled Nginx on
-container TCP 80/443, which Compose maps to host TCP 80/443 by default.
-`HAUNT_HTTP_PORT` and `HAUNT_HTTPS_PORT` override those host-side mappings.
-The supplied image runs the Haunt backend at `127.0.0.1:8080` inside the
-container and leaves that backend port unpublished behind Nginx.
-
 Use [.env.example](.env.example) as the configuration reference. Supply a dedicated
 PostgreSQL database and a persistent data directory, then start the binary. On a
 fresh installation, open the private setup link printed at startup. The wizard runs
@@ -105,6 +103,7 @@ the browser wizard behavior.
 - [DM security](docs/dm-security.md)
 - [Audio plugin interface](docs/audio-plugins.md)
 - [Build and distribute an audio plugin](docs/audio-plugin-authoring.md)
+- [Server extensions](docs/server-extensions.md)
 - [API endpoints](docs/endpoints.md)
 
 ## Security boundaries
@@ -127,11 +126,6 @@ server workflow builds binaries with that exact client's web interface.
 
 API specifications are generated from the server and checked into the client for
 standalone builds. See [client development](docs/client-development.md).
-
-Run `python3 scripts/check-repository.py` before committing local setup changes.
-Repository hygiene CI checks ignore boundaries and scans Git history for credentials.
-Keep installation data, secrets, private plugins and deployment records outside the
-tracked source. The client has its own ignore rules because it is a separate repository.
 
 Haunt is an independent project, not affiliated with Discord. Names of other products
 are used only to explain familiar behavior and interoperability.

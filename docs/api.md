@@ -19,7 +19,7 @@ The owner is created from `HAUNT_BOOTSTRAP_USERNAME` and `HAUNT_BOOTSTRAP_PASSWO
 | `DELETE /api/v1/sessions/{id}` | Revoke one of your sessions, including the current one; returns 204 |
 | `POST /api/v1/auth/logout` | Revoke current session; returns 204 |
 
-Login/registration returns `instance_id`, `user`, `session`, `token`, and `token_type: "Bearer"`. Subsequent requests use `Authorization: Bearer <token>`. Cookies, URL tokens, and cross-instance tokens do not authenticate. Tokens are returned once; only SHA-256 token hashes are stored. Sessions expire after a fixed lifetime (30 days by default), without sliding renewal. Account sessions are independent; revoking a device leaves other devices signed in.
+Login/registration returns `instance_id`, `user`, `session`, `token`, and `token_type: "Bearer"`. Subsequent requests use `Authorization: Bearer <token>`. Cookies, URL tokens, and cross-instance tokens do not authenticate. Tokens are returned once; only SHA-256 token hashes are stored. Nonremembered sessions expire after the configured lifetime (30 days by default), without sliding renewal. Remembered sessions remain valid until revoked; temporary-password sessions expire after 15 minutes. Account sessions are independent; revoking a device leaves other devices signed in.
 
 Usernames are case-insensitive ASCII letters/digits/underscores, 3–32 characters, stored lowercase. Registration passwords require at least 8 characters and at most 1024 UTF-8 bytes. Device labels require 1–128 characters. Passwords use Argon2id with a random 128-bit salt and 256-bit result, using RFC 9106's 64 MiB/3-pass/4-lane profile. See [RFC 9106](https://www.rfc-editor.org/rfc/rfc9106.html#section-4).
 
@@ -130,7 +130,7 @@ Owner recovery is host-only: `haunt -owner-password-file /protected/file`. The o
 | `PUT /api/v1/conversations/{id}/messages/{message}` | Author: `{ "body":"replacement text" }`; 200 |
 | `DELETE /api/v1/conversations/{id}/messages/{message}` | Author: stores a tombstone; 200 |
 
-A text or voice channel's conversation ID is its channel ID. Voice-channel chat requires view/send permissions independently of voice-connect permission, persists after calls end, and uses the same history, event, attachment and retention rules as text channels. Reading or sending chat does not join a call. The `messages.voice_channels` capability advertises this behavior. DMs always require membership, including for the owner. This API restriction does not prevent the host/database operator from reading stored DMs.
+A text or voice channel's conversation ID is its channel ID. Voice-channel chat requires view/send permissions independently of voice-connect permission, persists after calls end, and uses the same history, event, attachment and retention rules as text channels. Reading or sending chat does not join a call. The `messages.voice_channels` capability advertises this behavior. DMs always require membership, including for the owner. The operator can read legacy plaintext records, but encrypted DMs are stored as ciphertext. Device-directory trust and recovery are described in [DM security](dm-security.md).
 
 Messages contain `id`, `conversation_id`, `author_id`, `seq`, `body`, `attachment_ids`, `created_at`, optional `edited_at`, `deleted`, `request_id`, and optional `reply_to_id`. The server assigns IDs, authors, acceptance times, and sequences. A reply target must be retained, undeleted and in the same conversation when first created; its identifier remains on the reply if the target is later edited, deleted or pruned. Replies from another author count as mentions for unread notification purposes. Edits preserve original age/order. Deleted bodies and attachment links are cleared, old replay copies are removed, and associated attachments expire. Deleted messages cannot be edited again. `messages.replies` advertises reply support.
 
@@ -140,7 +140,7 @@ Retries use a caller-generated `request_id`, unique per author across conversati
 
 History returns `messages`, `last_seq`, `pruned_through`, `event_cursor`, and `gap`. `gap` means the requested sequence precedes the retention boundary or exceeds the current sequence. Expired messages are hidden immediately, before maintenance. Page with the last returned message sequence. A multi-page fetch is not one long snapshot: reconcile edits/events using the earliest page's event cursor. A `history.pruned` event reports server retention and does **not** request deletion of client-held older history. An explicit `message.deleted` tombstone has separate meaning.
 
-Text accounting is serialized message JSON plus 64 bytes per row, and serialized event JSON plus 64 bytes per replay row. Both channel and DM data share one strict cap. PostgreSQL page/index/WAL/metadata overhead is separate.
+Text accounting is serialized message JSON plus 64 bytes per row, and serialized event JSON plus 64 bytes per replay row. Channels and DMs have independent budgets. Channel capacity pruning removes oldest retained channel data; full DM text storage rejects new writes. DM age retention is independently configured and defaults to zero. PostgreSQL page/index/WAL/metadata overhead is separate.
 
 ## Attachments
 
@@ -194,9 +194,9 @@ When host relay support is enabled, `GET /api/v1/voice/{channel}/ice` renews aut
 
 ## Operations
 
-Owner-only `GET /api/v1/admin/stats` returns retained text, reserved attachments, row counts, database/relation/index sizes, estimated dead tuples, cluster WAL bytes since its statistics reset, pool acquisition counts/time, quota-lock acquisition counts/time, queued event bytes/overflows, SFU peers/drops, and relay allocations/rejections. WAL statistics are cumulative cluster activity, not physical WAL disk usage or this installation's exclusive share.
+`GET /api/v1/admin/stats` requires `manage_configuration` and returns retained text, reserved attachments, row counts, database/relation/index sizes, estimated dead tuples, cluster WAL bytes since its statistics reset, pool acquisition counts/time, quota-lock acquisition counts/time, queued event bytes/overflows, SFU peers/drops, and relay allocations/rejections. WAL statistics are cumulative cluster activity, not physical WAL disk usage or this installation's exclusive share.
 
-Owner-only `POST /api/v1/admin/maintenance` runs bounded credential/attachment maintenance and text pruning immediately, returning 204. The normal loop runs every minute. Host backup/restore and configuration procedures are in [operations.md](operations.md).
+`POST /api/v1/admin/maintenance` requires `manage_configuration` and runs bounded credential/attachment maintenance and text pruning immediately, returning 204. The normal loop runs every minute. Host backup/restore and configuration procedures are in [operations.md](operations.md).
 
 ## Automatic media transport
 
@@ -220,7 +220,7 @@ When `events.account_feed` is advertised, send `events.watch` on the authenticat
 
 ## Server emojis
 
-The `community.emojis` capability exposes an authenticated `GET /api/v1/emojis` catalog (IDs, lowercase names, versions and animation flags; no image bytes). Owners use `PUT /api/v1/emojis/{name}` with raw PNG/JPEG/GIF bytes to create or replace an emoji, and `DELETE /api/v1/emojis/{id}` to remove it. Downloads at `GET /api/v1/emojis/{id}/image` require server authentication. Names contain 2–32 ASCII letters, digits or underscores. Limits are 100 emojis per instance, 1 MiB/image and 256 × 256; GIFs use the same bounded frame validation as profile art. Replacement preserves the ID and changes the version. Quota checks serialize only the brief per-instance emoji write transaction; image decoding occurs before it.
+The `community.emojis` capability exposes an authenticated `GET /api/v1/emojis` catalog (IDs, lowercase names, versions and animation flags; no image bytes). Members with `manage_server`, including owners and Administrators, use `PUT /api/v1/emojis/{name}` with raw PNG/JPEG/GIF bytes to create or replace an emoji, and `DELETE /api/v1/emojis/{id}` to remove it. Downloads at `GET /api/v1/emojis/{id}/image` require server authentication. Names contain 2–32 ASCII letters, digits or underscores. Limits are 100 emojis per instance, 1 MiB/image and 256 × 256; GIFs use the same bounded frame validation as profile art. Replacement preserves the ID and changes the version. Quota checks serialize only the brief per-instance emoji write transaction; image decoding occurs before it.
 
 Clients insert `:name:` in ordinary message bodies and resolve against that instance's catalog in both channels and DMs. Code spans and URLs remain literal; unknown/deleted names remain text. Replacing an image updates previous uses of that name. Catalog changes issue the existing coalesced `directory.changed` gateway hint; initial connect/reconnect retrieves the current catalog. No per-emoji listener or periodic polling is needed. The browser/desktop editor converts static PNG/JPEG/WebP to a bounded PNG, while GIF uploads retain animation.
 

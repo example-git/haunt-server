@@ -2,11 +2,11 @@
 
 The Go implementation targets Linux amd64 and arm64. One process owns one community, a dedicated PostgreSQL database, and a persistent attachment directory. Clients can independently authenticate to several installations; there is no central identity service or federation.
 
-## Implemented boundaries
+## Component boundaries
 
 | Component | Responsibility |
 | --- | --- |
-| Configuration | Immutable startup settings, stable installation identity, explicit origins and proxy trust |
+| Configuration | Startup settings, revisioned runtime policy, stable installation identity, explicit origins and proxy trust |
 | Identity | Owner bootstrap/recovery, invite-only accounts, passwords, independent device sessions, roles and channel permissions |
 | Conversations | Channel permissions and DM membership, history, authorship, ordering and bounded retry deduplication |
 | Storage | PostgreSQL pooling, embedded migrations, strict retained-text accounting and attachment reservations |
@@ -15,19 +15,19 @@ The Go implementation targets Linux amd64 and arm64. One process owns one commun
 | Connectivity relay | Optional host service with expiring ICE credentials, authenticated allocations, bounded ports/sockets and optional TLS |
 | Operations | Maintenance, statistics, offline backup/restore, process shutdown and platform packaging |
 
-The reference snapshot is preserved and is not a server dependency. No desktop capture/transcoding/GStreamer pipeline is used in ordinary calls. Server media forwarding preserves encoded content. The optional connectivity relay is configured by the host; client users do not choose transport modes.
+Server media forwarding preserves encoded content without a capture or transcoding pipeline. The optional connectivity relay is configured by the host; client users do not choose transport modes.
 
 ## Persistence and transactions
 
 A startup advisory lock serializes embedded migrations only. The database stores one immutable installation ID; an ID mismatch or newer schema fails startup. Owner provisioning never silently resets an existing password. Session/invitation tokens are random and stored as hashes. Password hashing is bounded and happens without holding a pool connection or database transaction.
 
-Normal reads, authentication, rooms and independent requests remain concurrent. Message/attachment accounting takes the singleton storage row first, then conversation/attachment rows. This deliberate database contention point protects a strict shared budget; it is not a global process mutex or a worker serializing all database operations. No file upload, password computation, WebSocket send or media forwarding occurs inside an accounting transaction.
+Normal reads, authentication, rooms and independent requests remain concurrent. Message/attachment accounting takes the singleton storage row first, then conversation/attachment rows. Short transactions protect quota accounting while unrelated requests continue through pooled connections. No file upload, password computation, WebSocket send or media forwarding occurs inside an accounting transaction.
 
-Message acceptance assigns a per-conversation sequence and server time, claims attachment IDs, inserts canonical data, records a durable event, prunes and commits before acknowledging success. A crash between commit and network delivery is recovered through replay/history. Editing preserves original age/order. Explicit deletion removes body/attachment references and older event copies, stores a tombstone and expires the attachments.
+Message acceptance assigns a per-conversation sequence and server time, claims attachment IDs, inserts canonical data, records a durable event, applies the conversation's retention policy and commits before acknowledging success. A crash between commit and network delivery is recovered through replay/history. Editing preserves original age/order. Explicit deletion removes body/attachment references and older event copies, stores a tombstone and expires the attachments.
 
 ## Retention contract
 
-Channel and DM message JSON each count `serialized bytes + 64`; replay events use the same rule. The shared default cap is 256,000,000 bytes, with 30-day message age. Both age and oldest-first capacity pruning happen on writes, startup and periodic maintenance. Readers hide aged data immediately. Victims are selected by server acceptance time then UUID, without skipping older locked messages. Pruning inspects at most 512 victims per batch; one transaction continues until the strict cap is satisfied. Live changes are persisted with a revision check; age filtering applies immediately and writes/maintenance enforce the current cap. Startup also enforces the effective persisted policy. See `runtime-settings.md`.
+Channel and DM message JSON each count `serialized bytes + 64`; replay events use the same rule. Channel history defaults to a 256,000,000-byte budget and 30-day age limit, with oldest-first capacity pruning. DM text has an independent 256 MiB default budget and no age expiry by default; a full DM budget rejects new writes. Configured age limits apply to reads and maintenance. Channel pruning selects victims by acceptance time then UUID in bounded batches. Runtime changes use revision checks and apply without a restart. See [runtime settings](runtime-settings.md) and [DM storage](dm-security.md).
 
 The replay log is bounded by one hour, 10,000 records and a quarter of the text budget. Deleted/pruned replay ranges advance a conservative global floor; it can request a resync even when a particular conversation did not lose its own events. History and replay reads use repeatable-read snapshots. A cursor older than the retained boundary produces a visible gap. `history.pruned` is not an instruction to delete older client-held history.
 

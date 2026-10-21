@@ -57,4 +57,4 @@ expiry for remembered sessions. The per-account 20-session cap includes restored
 devices; requests are limited to 10 per five minutes per account. Temporary
 password sessions, revoked/expired sessions and banned/disabled accounts cannot
 restore. Revalidate under a per-account database lock before inserting, so resets
-and concurrent restores cannot bypass the policy. No schema migration is needed.
+and concurrent restores cannot bypass the policy.

@@ -10,16 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
-
-const TikTokID = "tiktok-tts"
-const PrimaryEndpoint = "https://api16-normal-useast5.us.tiktokv.com"
-const AlternateEndpoint = "https://api16-normal-useast5.tiktokv.us"
 
 var ErrInvalid = errors.New("invalid_server_extension")
 var ErrConflict = errors.New("server_extension_conflict")
@@ -29,37 +28,41 @@ var ErrUpstream = errors.New("tts_provider_failed")
 var ErrBusy = errors.New("tts_provider_busy")
 
 type Extension struct {
-	ID         string `json:"id" required:"true"`
-	Name       string `json:"name" required:"true"`
-	Category   string `json:"category" required:"true" enum:"tts"`
-	Enabled    bool   `json:"enabled" required:"true"`
-	Configured bool   `json:"configured" required:"true"`
+	ID           string  `json:"id" required:"true"`
+	Name         string  `json:"name" required:"true"`
+	Description  string  `json:"description" required:"true"`
+	Category     string  `json:"category" required:"true" enum:"tts"`
+	Enabled      bool    `json:"enabled" required:"true"`
+	Configured   bool    `json:"configured" required:"true"`
+	Voices       []Voice `json:"voices" required:"true"`
+	DefaultVoice string  `json:"default_voice" required:"true"`
+	VoicePattern string  `json:"voice_pattern,omitempty"`
 }
 
 type Configuration struct {
 	Extension
-	Revision int64  `json:"revision" required:"true" minimum:"0"`
-	Endpoint string `json:"endpoint" required:"true"`
+	Revision          int64             `json:"revision" required:"true" minimum:"0"`
+	Fields            []Field           `json:"fields" required:"true"`
+	Values            map[string]string `json:"values" required:"true"`
+	ConfiguredSecrets []string          `json:"configured_secrets" required:"true"`
 }
 
 type SaveRequest struct {
-	Revision     int64  `json:"revision" required:"true" minimum:"0"`
-	Enabled      bool   `json:"enabled" required:"true"`
-	Endpoint     string `json:"endpoint" required:"true"`
-	SessionToken string `json:"session_token,omitempty" description:"Write-only TikTok sessionid. Omit or leave blank to keep the saved token."`
-	ClearToken   bool   `json:"clear_token,omitempty"`
+	Revision     int64             `json:"revision" required:"true" minimum:"0"`
+	Enabled      bool              `json:"enabled" required:"true"`
+	Values       map[string]string `json:"values" required:"true"`
+	ClearSecrets []string          `json:"clear_secrets,omitempty"`
 }
 
 type SpeechRequest struct {
-	Text  string `json:"text" required:"true" maxLength:"500"`
+	Text  string `json:"text" required:"true" maxLength:"500" description:"Text limited to 500 UTF-8 bytes."`
 	Voice string `json:"voice" required:"true" maxLength:"64"`
 }
 
 type storedConfiguration struct {
-	Revision int64  `json:"revision"`
-	Enabled  bool   `json:"enabled"`
-	Endpoint string `json:"endpoint"`
-	Token    string `json:"token"`
+	Revision int64             `json:"revision"`
+	Enabled  bool              `json:"enabled"`
+	Values   map[string]string `json:"values"`
 }
 
 type cacheEntry struct {
@@ -70,20 +73,26 @@ type cacheEntry struct {
 
 type Store struct {
 	mu         sync.Mutex
-	value      storedConfiguration
+	ctx        context.Context
+	cancel     context.CancelFunc
+	values     map[string]storedConfiguration
+	packages   map[string]installedPackage
+	generation uint64
 	directory  string
 	key        cipher.AEAD
-	client     *http.Client
 	cache      map[[32]byte]*list.Element
 	order      *list.List
 	cacheBytes int
 	slots      chan struct{}
-	retryAt    time.Time
+	retryAt    map[string]time.Time
 }
 
-func New(dataDir string, clients ...*http.Client) (*Store, error) {
-	directory := filepath.Join(dataDir, "server-extensions")
-	if err := os.MkdirAll(directory, 0700); err != nil {
+func New(dataDir string) (*Store, error) {
+	directory, err := filepath.Abs(filepath.Join(dataDir, "server-extensions"))
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Join(directory, "packages"), 0700); err != nil {
 		return nil, err
 	}
 	keyFile := filepath.Join(directory, "key")
@@ -111,124 +120,235 @@ func New(dataDir string, clients ...*http.Client) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	if len(clients) > 0 {
-		client = clients[0]
+	store := &Store{directory: directory, key: aead, values: make(map[string]storedConfiguration), slots: make(chan struct{}, 2)}
+	data, err := os.ReadFile(filepath.Join(directory, "configurations.encrypted"))
+	if err == nil {
+		if len(data) < aead.NonceSize() || len(data) > 8*1024*1024 {
+			return nil, ErrInvalid
+		}
+		plain, err := aead.Open(nil, data[:aead.NonceSize()], data[aead.NonceSize():], []byte("server-extensions-v1"))
+		if err != nil || json.Unmarshal(plain, &store.values) != nil || store.values == nil {
+			return nil, ErrInvalid
+		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		if err := store.migrate(); err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, err
 	}
-	copyClient := *client
-	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	store := &Store{directory: directory, key: aead, client: &copyClient,
-		value: storedConfiguration{Endpoint: PrimaryEndpoint}, cache: make(map[[32]byte]*list.Element), order: list.New(), slots: make(chan struct{}, 2)}
-	data, err := os.ReadFile(filepath.Join(directory, "configuration.encrypted"))
-	if errors.Is(err, os.ErrNotExist) {
-		return store, nil
+	for id, value := range store.values {
+		if !identifier.MatchString(id) || value.Revision < 0 || value.Values == nil {
+			return nil, ErrInvalid
+		}
 	}
-	if err != nil || len(data) < aead.NonceSize() || len(data) > 8192 {
-		return nil, fmt.Errorf("cannot load server extension configuration")
+	if err := store.Reload(); err != nil {
+		return nil, err
 	}
-	plain, err := aead.Open(nil, data[:aead.NonceSize()], data[aead.NonceSize():], []byte(TikTokID))
-	if err != nil || json.Unmarshal(plain, &store.value) != nil || !validConfiguration(store.value) {
-		return nil, fmt.Errorf("invalid server extension configuration")
-	}
+	store.ctx, store.cancel = context.WithCancel(context.Background())
 	return store, nil
 }
 
-func validConfiguration(value storedConfiguration) bool {
-	return value.Revision >= 0 && (value.Endpoint == PrimaryEndpoint || value.Endpoint == AlternateEndpoint) &&
-		(value.Token == "" || sessionPattern.MatchString(value.Token)) && (!value.Enabled || value.Token != "")
+func (store *Store) migrate() error {
+	data, err := os.ReadFile(filepath.Join(store.directory, "configuration.encrypted"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(data) < store.key.NonceSize() || len(data) > 8192 {
+		return ErrInvalid
+	}
+	plain, err := store.key.Open(nil, data[:store.key.NonceSize()], data[store.key.NonceSize():], []byte("tiktok-tts"))
+	var previous struct {
+		Revision int64  `json:"revision"`
+		Enabled  bool   `json:"enabled"`
+		Endpoint string `json:"endpoint"`
+		Token    string `json:"token"`
+	}
+	if err != nil || json.Unmarshal(plain, &previous) != nil || previous.Revision < 0 {
+		return ErrInvalid
+	}
+	store.values["tiktok-tts"] = storedConfiguration{previous.Revision, previous.Enabled, map[string]string{"endpoint": previous.Endpoint, "session_token": previous.Token}}
+	return store.persist(store.values)
 }
 
-func (store *Store) status() Configuration {
-	return Configuration{Extension: Extension{ID: TikTokID, Name: "TikTok TTS", Category: "tts", Enabled: store.value.Enabled, Configured: store.value.Token != ""},
-		Revision: store.value.Revision, Endpoint: store.value.Endpoint}
+func (store *Store) Reload() error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	packages, err := discover(filepath.Join(store.directory, "packages"))
+	if err != nil {
+		return err
+	}
+	store.packages = packages
+	store.generation++
+	store.cache = make(map[[32]byte]*list.Element)
+	store.order = list.New()
+	store.cacheBytes = 0
+	store.retryAt = make(map[string]time.Time)
+	return nil
+}
+
+func configurationReady(manifest Manifest, values map[string]string) bool {
+	for _, field := range manifest.Fields {
+		value := values[field.Key]
+		if (field.Required && value == "") || !validField(field, value) {
+			return false
+		}
+	}
+	return true
+}
+
+func (store *Store) value(id string) storedConfiguration {
+	value := store.values[id]
+	values := make(map[string]string)
+	for _, field := range store.packages[id].manifest.Fields {
+		values[field.Key] = field.Default
+	}
+	for key, current := range value.Values {
+		values[key] = current
+	}
+	value.Values = values
+	return value
+}
+
+func (store *Store) status(id string) Configuration {
+	manifest := store.packages[id].manifest
+	value := store.value(id)
+	result := Configuration{Extension: Extension{ID: id, Name: manifest.Name, Description: manifest.Description, Category: manifest.Category, Enabled: value.Enabled, Configured: configurationReady(manifest, value.Values), Voices: manifest.Voices, DefaultVoice: manifest.DefaultVoice, VoicePattern: manifest.VoicePattern}, Revision: value.Revision, Fields: manifest.Fields, Values: make(map[string]string), ConfiguredSecrets: []string{}}
+	for _, field := range manifest.Fields {
+		if field.Type == "password" {
+			if value.Values[field.Key] != "" {
+				result.ConfiguredSecrets = append(result.ConfiguredSecrets, field.Key)
+			}
+		} else {
+			result.Values[field.Key] = value.Values[field.Key]
+		}
+	}
+	return result
 }
 
 func (store *Store) Configuration(id string) (Configuration, error) {
-	if id != TikTokID {
-		return Configuration{}, ErrInvalid
-	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	return store.status(), nil
+	if _, ok := store.packages[id]; !ok {
+		return Configuration{}, ErrUnavailable
+	}
+	return store.status(id), nil
 }
 
 func (store *Store) Catalog() []Extension {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	return []Extension{store.status().Extension}
+	catalog := make([]Extension, 0, len(store.packages))
+	for id := range store.packages {
+		catalog = append(catalog, store.status(id).Extension)
+	}
+	sort.Slice(catalog, func(i, j int) bool { return catalog[i].ID < catalog[j].ID })
+	return catalog
 }
 
-func (store *Store) Save(id string, request SaveRequest) (Configuration, error) {
-	if id != TikTokID {
-		return Configuration{}, ErrInvalid
-	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	if request.Revision != store.value.Revision {
-		return Configuration{}, ErrConflict
-	}
-	next := store.value
-	next.Enabled, next.Endpoint = request.Enabled, request.Endpoint
-	if request.ClearToken && request.SessionToken != "" {
-		return Configuration{}, ErrInvalid
-	}
-	if request.ClearToken {
-		next.Token = ""
-	}
-	if request.SessionToken != "" {
-		next.Token = request.SessionToken
-	}
-	next.Revision++
-	if !validConfiguration(next) {
-		return Configuration{}, ErrInvalid
-	}
-	plain, err := json.Marshal(next)
+func (store *Store) persist(values map[string]storedConfiguration) error {
+	plain, err := json.Marshal(values)
 	if err != nil {
-		return Configuration{}, err
+		return err
 	}
 	nonce := make([]byte, store.key.NonceSize())
 	if _, err = rand.Read(nonce); err != nil {
-		return Configuration{}, err
+		return err
 	}
-	data := store.key.Seal(nonce, nonce, plain, []byte(TikTokID))
+	data := store.key.Seal(nonce, nonce, plain, []byte("server-extensions-v1"))
 	file, err := os.CreateTemp(store.directory, ".configuration-")
 	if err != nil {
-		return Configuration{}, err
+		return err
 	}
 	defer os.Remove(file.Name())
 	if _, err = file.Write(data); err != nil {
 		file.Close()
-		return Configuration{}, err
+		return err
 	}
 	if err = file.Sync(); err != nil {
 		file.Close()
-		return Configuration{}, err
+		return err
 	}
 	if err = file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), filepath.Join(store.directory, "configurations.encrypted"))
+}
+
+func (store *Store) Save(id string, request SaveRequest) (Configuration, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	extension, ok := store.packages[id]
+	if !ok {
+		return Configuration{}, ErrUnavailable
+	}
+	next := store.value(id)
+	if request.Revision != next.Revision {
+		return Configuration{}, ErrConflict
+	}
+	fields := make(map[string]Field)
+	for _, field := range extension.manifest.Fields {
+		fields[field.Key] = field
+	}
+	for key, value := range request.Values {
+		field, ok := fields[key]
+		if !ok || !validField(field, value) {
+			return Configuration{}, ErrInvalid
+		}
+		if field.Type != "password" || value != "" {
+			next.Values[key] = value
+		}
+	}
+	for _, key := range request.ClearSecrets {
+		if fields[key].Type != "password" || request.Values[key] != "" {
+			return Configuration{}, ErrInvalid
+		}
+		next.Values[key] = ""
+	}
+	next.Enabled = request.Enabled
+	if next.Enabled && !configurationReady(extension.manifest, next.Values) {
+		return Configuration{}, ErrInvalid
+	}
+	next.Revision++
+	values := make(map[string]storedConfiguration, len(store.values)+1)
+	for key, value := range store.values {
+		values[key] = value
+	}
+	values[id] = next
+	if err := store.persist(values); err != nil {
 		return Configuration{}, err
 	}
-	if err = os.Rename(file.Name(), filepath.Join(store.directory, "configuration.encrypted")); err != nil {
-		return Configuration{}, err
-	}
-	store.value = next
+	store.values = values
 	store.cache = make(map[[32]byte]*list.Element)
 	store.order.Init()
 	store.cacheBytes = 0
-	store.retryAt = time.Time{}
-	return store.status(), nil
+	delete(store.retryAt, id)
+	return store.status(id), nil
 }
 
 func (store *Store) Speech(ctx context.Context, id string, request SpeechRequest, test bool) ([]byte, error) {
-	if id != TikTokID || len(request.Text) == 0 || len(request.Text) > 500 || !voicePattern.MatchString(request.Voice) {
+	if len(request.Text) > 500 || !utf8.ValidString(request.Text) || strings.TrimSpace(request.Text) == "" || len(request.Voice) > 64 || !utf8.ValidString(request.Voice) {
 		return nil, ErrInvalid
 	}
 	store.mu.Lock()
-	value := store.value
-	if value.Token == "" || (!test && !value.Enabled) {
+	extension, ok := store.packages[id]
+	value := store.value(id)
+	generation := store.generation
+	if !ok || !configurationReady(extension.manifest, value.Values) || (!test && !value.Enabled) {
 		store.mu.Unlock()
 		return nil, ErrUnavailable
 	}
-	cacheKey := sha256.Sum256([]byte(fmt.Sprintf("%d:%s:%s", value.Revision, request.Voice, request.Text)))
+	if request.Voice == "" {
+		request.Voice = extension.manifest.DefaultVoice
+	}
+	if pattern := extension.manifest.VoicePattern; pattern != "" && !regexp.MustCompile(pattern).MatchString(request.Voice) {
+		store.mu.Unlock()
+		return nil, ErrInvalid
+	}
+	cacheKey := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%d:%d:%s:%s", id, value.Revision, generation, len(request.Voice), request.Voice, request.Text)))
 	if !test {
 		if item := store.cache[cacheKey]; item != nil {
 			entry := item.Value.(cacheEntry)
@@ -239,7 +359,7 @@ func (store *Store) Speech(ctx context.Context, id string, request SpeechRequest
 			}
 			store.remove(item)
 		}
-		if time.Now().Before(store.retryAt) {
+		if time.Now().Before(store.retryAt[id]) {
 			store.mu.Unlock()
 			return nil, ErrBusy
 		}
@@ -251,15 +371,19 @@ func (store *Store) Speech(ctx context.Context, id string, request SpeechRequest
 	default:
 		return nil, ErrBusy
 	}
-	audio, err := synthesizeTikTok(ctx, store.client, value.Endpoint, value.Token, request)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(store.ctx, cancel)
+	defer stop()
+	audio, err := extension.speech(ctx, value.Values, request)
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.value.Revision != value.Revision {
+	if store.values[id].Revision != value.Revision || store.generation != generation {
 		return nil, ErrUnavailable
 	}
 	if err != nil {
-		if ctx.Err() == nil {
-			store.retryAt = time.Now().Add(30 * time.Second)
+		if ctx.Err() == nil && !errors.Is(err, ErrInvalid) {
+			store.retryAt[id] = time.Now().Add(30 * time.Second)
 		}
 		return nil, err
 	}
@@ -283,4 +407,4 @@ func (store *Store) remove(item *list.Element) {
 	store.order.Remove(item)
 }
 
-func (store *Store) Close() { store.client.CloseIdleConnections() }
+func (store *Store) Close() { store.cancel() }

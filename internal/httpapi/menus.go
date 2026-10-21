@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/serverextension"
 	"net/http"
 )
 
@@ -16,6 +17,7 @@ type MenuPage struct {
 	Label        string       `json:"label" required:"true"`
 	ContextLabel string       `json:"context_label,omitempty"`
 	Builtin      string       `json:"builtin,omitempty"`
+	ExtensionID  string       `json:"extension_id,omitempty"`
 	Form         *MenuForm    `json:"form,omitempty"`
 	Action       *MenuCommand `json:"action,omitempty"`
 }
@@ -95,10 +97,13 @@ func runtimeMenu() MenuPage {
 		Description: "Saved on this server and applied without a restart.", SubmitLabel: "Save configuration", SuccessMessage: "Server configuration saved and applied.",
 	}}
 }
-func serverMenu(p identity.Principal) MenuManifest {
+func serverMenu(p identity.Principal, extensions ...serverextension.Extension) MenuManifest {
 	v := MenuManifest{Version: 1, Pages: []MenuPage{}}
 	if p.Can(identity.ManageConfiguration) {
 		v.Pages = append(v.Pages, MenuPage{ID: "server-extensions", Label: "Server extensions", ContextLabel: "Server extensions", Builtin: "server-extensions"})
+		for _, extension := range extensions {
+			v.Pages = append(v.Pages, MenuPage{ID: "extension-" + extension.ID, Label: extension.Name, ContextLabel: extension.Name, Builtin: "server-extensions", ExtensionID: extension.ID})
+		}
 	}
 	add := func(permission int64, id, label string) {
 		if p.Can(permission) {
@@ -122,7 +127,9 @@ func serverMenu(p identity.Principal) MenuManifest {
 	return v
 }
 func (f *Features) menuRoutes(a *api, mux routeRegistrar) {
-	mux.HandleFunc("GET /api/v1/menus/server", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) { writeJSON(w, 200, serverMenu(p)) }))
+	mux.HandleFunc("GET /api/v1/menus/server", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+		writeJSON(w, 200, serverMenu(p, f.Extensions.Catalog()...))
+	}))
 	mux.HandleFunc("GET /api/v1/channels/{id}/menu", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		channel, err := a.identity.Channel(r.Context(), p, r.PathValue("id"))
 		if err != nil {

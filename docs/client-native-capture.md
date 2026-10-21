@@ -1,17 +1,16 @@
 # macOS native capture
 
-Apple Silicon Electron builds use the owner's prebuilt SwiftCaptureWorker for
-webcams/capture cards and screen/window sharing. The copied executable is in
-`client/static/native/mac/SwiftCaptureWorker`; its original SHA-256 is
-`42d09709d46fc3e2b23477b10eab2cc1741cb11631def819ec94c38b313ca1c7`.
+Apple Silicon Electron builds use SwiftCaptureWorker for webcams/capture cards
+and screen/window sharing. The executable and its integrity manifest are bundled
+under `client/static/native/mac/`.
 It targets macOS 13 or newer. macOS packages target arm64 only; native capture is
 the standard path on Apple Silicon. Browser clients and Linux/Windows Electron
-retain Chromium capture. No transport choice is added to the UI.
+use Chromium capture.
 
-The integration follows the watch client's Electron host contract: enumerate
-native cameras, audio devices, displays and windows through SwiftCapture,
-request macOS camera/microphone permission in Electron, spawn a worker per source,
-and parse SCAP v1 configuration/sample records. Haunt uses private inherited descriptors:
+Electron enumerates native cameras, audio devices, displays and windows through
+SwiftCapture, requests macOS camera/microphone permission, and spawns a worker
+per source. It parses SCAP v1 configuration/sample records through private
+inherited descriptors:
 FD 3 for H.264 Annex-B access units, FD 4 for PCM source audio, and stdin for the
 worker's control channel. There is no localhost capture listener. Only workers
 spawned by this app are stopped; no process search or orphan-worker cleanup runs.
@@ -34,7 +33,7 @@ worker's catalog does not provide thumbnails.
 - **Local preview and WebSocket receive:** WebCodecs requests hardware decoding
   first and automatically falls back when that configuration is unavailable or
   fails. Decoded `VideoFrame`s go directly into a generated media track on
-  Chromium/Electron, avoiding the old canvas copy and 30 fps timing gate. Browsers
+  Chromium/Electron. Browsers
   without that track API use a canvas with no artificial frame-rate limit. All
   paths feed the existing tile/PiP/popout streams. Actual presentation rate is
   bounded by the source, display and device performance.
@@ -99,7 +98,6 @@ enumeration/permission never opens a Chromium camera.
 The fixture uses binary packets and disables the automation driver's DevTools
 Network recording during media flow, avoiding copies of every media packet into
 the test-control connection. Normal app HTTP/WebSocket traffic remains active.
-The production app does not depend on this test-driver setting.
 
 In Electron's developer console, `await window.chatxoDesktop.mediaDiagnostics()`
 reports whether app hardware acceleration is enabled and Chromium's GPU feature
@@ -108,8 +106,6 @@ not proof that a particular stream used VideoToolbox. Confirm a stream's actual
 decoder in Chromium media/WebRTC diagnostics on the Mac when investigating
 device-specific performance.
 
-The service includes a relay compatibility fix: negotiated H.264 profile and
-packetization mode must agree, but the level and endpoint preferences can differ;
-Opus receive preferences likewise need not be identical strings. The stricter
-in-stream format-change check remains intact. The Oracle test service received
-this fix on October 10 at 11:43:37 PM EDT. Other services must be upgraded too.
+Negotiated H.264 profile and packetization mode must agree; levels and endpoint
+preferences can differ. Opus receive preferences can also differ. In-stream
+format changes require reconfiguration.

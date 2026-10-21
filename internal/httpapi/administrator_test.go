@@ -4,15 +4,20 @@ import (
 	"testing"
 
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/testutil"
 )
 
 func TestAdministratorEffectivePermissionsAndRevocation(t *testing.T) {
-	f, _ := featureFixture(t, 256_000_000)
+	f, features := featureFixture(t, 256_000_000)
+	testutil.InstallSpeechExtension(t, f.cfg.DataDir, "example-tts")
+	if err := features.Extensions.Reload(); err != nil {
+		t.Fatal(err)
+	}
 	admin := f.register(t, "administrator")
 	member := f.register(t, "ordinary_member")
 	peer := f.register(t, "administrator_peer")
 	manager := f.register(t, "role_manager")
-	extension := "/api/v1/admin/server-extensions/tiktok-tts"
+	extension := "/api/v1/admin/server-extensions/example-tts"
 	f.call(t, "GET", extension, admin.Token, nil, 403, nil)
 	role := grantRole(t, f, admin, identity.Administrator, 50)
 	grantRole(t, f, peer, identity.Administrator, 50)
@@ -34,7 +39,7 @@ func TestAdministratorEffectivePermissionsAndRevocation(t *testing.T) {
 		}
 	}
 	f.call(t, "GET", extension, admin.Token, nil, 200, nil)
-	f.call(t, "PUT", extension, admin.Token, map[string]any{"revision": 0, "enabled": false, "endpoint": "https://api16-normal-useast5.us.tiktokv.com"}, 200, nil)
+	f.call(t, "PUT", extension, admin.Token, map[string]any{"revision": 0, "enabled": false, "values": map[string]string{}}, 200, nil)
 	f.call(t, "POST", extension+"/test", admin.Token, map[string]any{}, 400, nil)
 	f.call(t, "GET", "/api/v1/admin/stats", admin.Token, nil, 200, nil)
 	f.call(t, "POST", "/api/v1/admin/maintenance", admin.Token, nil, 204, nil)
