@@ -53,7 +53,8 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue(any("maximum" in error for error in INSTALL.validate_profile("container", values)))
 
     def test_container_guidance_explains_frontend_and_backend_ports(self):
-        for relative in ("README.md", "docs/container.md", "docs/first-run.md", "deploy/container.env.example"):
+        self.assertIn("](docs/container.md)", (ROOT / "README.md").read_text())
+        for relative in ("docs/container.md", "docs/first-run.md", "deploy/container.env.example"):
             with self.subTest(relative=relative):
                 guidance = (ROOT / relative).read_text()
                 self.assertIn("TCP 80/443", guidance)
