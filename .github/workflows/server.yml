@@ -20,6 +20,12 @@ jobs:
           repository: example-git/haunt-client
           ref: ${{ steps.client.outputs.commit }}
           path: client
+      - name: Read hosted client origin
+        id: hosted_client
+        run: |
+          origin=$(python3 -c 'import json,re; value=json.load(open("client/web-deployment.json")); assert value["version"] == 1; origin=value["origin"]; assert re.fullmatch(r"https://[a-z0-9][a-z0-9.-]*", origin); print(origin)')
+          echo "HAUNT_WEB_CLIENT_ORIGIN=$origin" >> "$GITHUB_ENV"
+          echo "origin=$origin" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
@@ -37,7 +43,7 @@ jobs:
           version=0.0.0
           if [[ "$GITHUB_REF_NAME" == server-v* ]]; then version="${GITHUB_REF_NAME#server-v}"; fi
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags webclient -trimpath -ldflags="-s -w -X main.version=$version" -o "release/haunt-server-linux-$arch" ./cmd/haunt
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags webclient -trimpath -ldflags="-s -w -X main.version=$version -X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=$HAUNT_WEB_CLIENT_ORIGIN" -o "release/haunt-server-linux-$arch" ./cmd/haunt
           done
           cd release
           sha256sum haunt-server-* > SHA256SUMS

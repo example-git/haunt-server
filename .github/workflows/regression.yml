@@ -39,6 +39,12 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: client/package-lock.json
+      - name: Read hosted client origin
+        id: hosted_client
+        run: |
+          origin=$(python3 -c 'import json,re; value=json.load(open("client/web-deployment.json")); assert value["version"] == 1; origin=value["origin"]; assert re.fullmatch(r"https://[a-z0-9][a-z0-9.-]*", origin); print(origin)')
+          echo "HAUNT_WEB_CLIENT_ORIGIN=$origin" >> "$GITHUB_ENV"
+          echo "origin=$origin" >> "$GITHUB_OUTPUT"
       - name: Require media dependencies
         run: |
           sudo apt-get update
@@ -71,7 +77,7 @@ jobs:
       - name: Run database, media and recovery regressions with race detection
         run: |
           mkdir -p test-results
-          go test -race -p 2 -count=1 -timeout=8m -json ./... | tee test-results/server.jsonl
+          go test -race -ldflags="-X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=$HAUNT_WEB_CLIENT_ORIGIN" -p 2 -count=1 -timeout=8m -json ./... | tee test-results/server.jsonl
           python3 scripts/check-test-results.py test-results/server.jsonl
       - name: Check real browser workflows
         working-directory: client
@@ -80,7 +86,7 @@ jobs:
         run: |
           mkdir -p bin
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags webclient -trimpath -o "bin/haunt-server-linux-$arch" ./cmd/haunt
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags webclient -trimpath -ldflags="-X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=$HAUNT_WEB_CLIENT_ORIGIN" -o "bin/haunt-server-linux-$arch" ./cmd/haunt
           done
       - name: Check standalone first-run setup
         run: |

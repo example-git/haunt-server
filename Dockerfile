@@ -21,9 +21,10 @@ COPY webclient_disabled.go ./
 ARG TARGETOS
 ARG TARGETARCH
 ARG HAUNT_VERSION=container
+ARG HAUNT_WEB_CLIENT_ORIGIN
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOMAXPROCS=2 \
-    go build -p 2 -trimpath -ldflags="-s -w -X main.version=$HAUNT_VERSION" -o /haunt ./cmd/haunt
+    go build -p 2 -trimpath -ldflags="-s -w -X main.version=$HAUNT_VERSION -X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=$HAUNT_WEB_CLIENT_ORIGIN" -o /haunt ./cmd/haunt
 
 # Keep probing support without ffmpeg's device/filter stack or a video encoder
 # executable. Haunt forwards media; it does not transcode calls on the server.

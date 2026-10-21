@@ -75,6 +75,8 @@ func Environment() map[string]string {
 	return values
 }
 
+var HostedClientOrigin string
+
 // Load applies defaults only to omitted values. Explicit empty, malformed, or
 // out-of-range values fail rather than silently enabling a different behavior.
 func Load() (Config, error) { return LoadValues(Environment()) }
@@ -118,6 +120,13 @@ func LoadValues(values map[string]string) (Config, error) {
 	}
 	c.DBMaxConns = int32(maxConns)
 	c.ClientOrigins = []string{c.PublicURL}
+	if HostedClientOrigin != "" {
+		allowed, err := origin(HostedClientOrigin)
+		if err != nil || !strings.HasPrefix(allowed, "https://") {
+			return Config{}, fmt.Errorf("invalid built-in web client origin")
+		}
+		c.ClientOrigins = append(c.ClientOrigins, allowed)
+	}
 	if raw, present := e.lookup("HAUNT_TRUSTED_PROXIES"); present {
 		for _, value := range strings.Split(raw, ",") {
 			prefix, err := netip.ParsePrefix(strings.TrimSpace(value))

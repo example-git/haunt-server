@@ -27,7 +27,7 @@ def main():
     for arch in ["amd64", "arm64"]:
         with tempfile.TemporaryDirectory(prefix="haunt-app-") as temporary:
             stage = Path(temporary)
-            subprocess.run(["go", "build", "-p", "2", "-trimpath", "-ldflags=-s -w -X main.version=" + version,
+            subprocess.run(["go", "build", "-p", "2", "-trimpath", "-ldflags=-s -w -X main.version=" + version + " -X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=" + os.environ.get("HAUNT_WEB_CLIENT_ORIGIN", ""),
                             "-o", str(stage / "haunt"), "./cmd/haunt"], cwd=ROOT,
                            env={**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": arch, "GOMAXPROCS": "2"}, check=True)
             metadata = {"schema": 1, "version": version, "runtime": runtime, "platform": "linux/" + arch}

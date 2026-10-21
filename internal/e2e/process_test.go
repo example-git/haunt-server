@@ -44,7 +44,7 @@ func TestCompiledServerRestartCrashBackupRestoreAndOwnerRecovery(t *testing.T) {
 	binary := os.Getenv("HAUNT_TEST_SERVER_BINARY")
 	if binary == "" {
 		binary = filepath.Join(scratch, "haunt")
-		build := exec.Command("go", "build", "-race", "-o", binary, "./cmd/haunt")
+		build := exec.Command("go", "build", "-race", "-ldflags", "-X github.com/example-git/haunt-server/internal/config.HostedClientOrigin="+os.Getenv("HAUNT_WEB_CLIENT_ORIGIN"), "-o", binary, "./cmd/haunt")
 		build.Dir = root
 		if output, err := build.CombinedOutput(); err != nil {
 			t.Fatalf("build server: %v %s", err, output)

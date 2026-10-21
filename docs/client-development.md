@@ -25,6 +25,14 @@ Start with `GET /api/v1/instance` for installation identity, capabilities, trans
 
 `messages.replies` adds optional `reply_to_id` fields to message creation and returned messages. The target must be a retained, undeleted message in the same conversation when the reply is first committed. Keep the identifier when its target is later edited, deleted or pruned so clients can show a tombstone or unavailable-reference state; retries use the original request ID and reply target.
 
+## Hosted web client origin
+
+Actions builds include the standalone web client's HTTPS origin from
+`client/web-deployment.json`. It is added to the server's allowed client origins
+alongside its own public URL and explicit `HAUNT_CLIENT_ORIGINS`. Release binaries,
+container images and application-update bundles use the same address. Local
+builds can configure additional origins through `HAUNT_CLIENT_ORIGINS`.
+
 ## Rich message previews
 
 `messages.embeds` advertises three generated authenticated GET operations:

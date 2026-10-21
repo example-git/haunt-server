@@ -33,6 +33,12 @@ jobs:
           repository: example-git/haunt-client
           ref: ${{ steps.client.outputs.commit }}
           path: client
+      - name: Read hosted client origin
+        id: hosted_client
+        run: |
+          origin=$(python3 -c 'import json,re; value=json.load(open("client/web-deployment.json")); assert value["version"] == 1; origin=value["origin"]; assert re.fullmatch(r"https://[a-z0-9][a-z0-9.-]*", origin); print(origin)')
+          echo "HAUNT_WEB_CLIENT_ORIGIN=$origin" >> "$GITHUB_ENV"
+          echo "origin=$origin" >> "$GITHUB_OUTPUT"
       - id: release
         name: Select image version
         env:
@@ -57,7 +63,9 @@ jobs:
           load: true
           platforms: linux/${{ matrix.arch }}
           tags: haunt:check
-          build-args: HAUNT_VERSION=${{ steps.release.outputs.version }}
+          build-args: |
+            HAUNT_VERSION=${{ steps.release.outputs.version }}
+            HAUNT_WEB_CLIENT_ORIGIN=${{ steps.hosted_client.outputs.origin }}
           labels: |
             org.opencontainers.image.source=https://github.com/example-git/haunt
             org.opencontainers.image.revision=${{ github.sha }}
