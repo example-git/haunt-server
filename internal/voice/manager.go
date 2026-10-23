@@ -46,14 +46,17 @@ type Track struct {
 	Purpose string                    `json:"purpose"`
 	ID      string                    `json:"track_id"`
 	Codec   webrtc.RTPCodecCapability `json:"codec"`
+	Layers  []VideoLayer              `json:"layers,omitempty"`
 }
 type Snapshot struct {
-	ID            string         `json:"participant_id"`
-	UserID        string         `json:"user_id"`
-	JoinedAt      time.Time      `json:"joined_at"`
-	State         State          `json:"state"`
-	Tracks        []Track        `json:"tracks"`
-	EncodedTracks []EncodedTrack `json:"encoded_tracks,omitempty"`
+	ID            string                    `json:"participant_id"`
+	UserID        string                    `json:"user_id"`
+	JoinedAt      time.Time                 `json:"joined_at"`
+	State         State                     `json:"state"`
+	SelfState     State                     `json:"self_state,omitempty"`
+	Restriction   identity.VoiceRestriction `json:"restriction,omitempty"`
+	Tracks        []Track                   `json:"tracks"`
+	EncodedTracks []EncodedTrack            `json:"encoded_tracks,omitempty"`
 }
 type room struct {
 	mu      sync.Mutex
@@ -61,6 +64,9 @@ type room struct {
 	members map[string]*participant
 }
 type source struct {
+	rid        string
+	layer      VideoLayer
+	layers     map[string]*source
 	purpose    string
 	codec      webrtc.RTPCodecCapability
 	ssrc       uint32
@@ -68,6 +74,7 @@ type source struct {
 	extensions []webrtc.RTPHeaderExtensionParameter
 }
 type packet struct {
+	epoch   uint64
 	purpose string
 	rtp     *rtp.Packet
 }
@@ -78,9 +85,12 @@ type participant struct {
 	room              *room
 	send              Send
 	state             State
+	self              State
+	restriction       identity.VoiceRestriction
 	publish           *webrtc.PeerConnection
 	publishID         string
 	trackIDs          map[string]string
+	videoLayers       map[string][]VideoLayer
 	sources           map[string]*source
 	subscriptions     map[string]*subscription
 	closed            bool
@@ -94,6 +104,7 @@ type subscription struct {
 	owner, publisher *participant
 	pc               *webrtc.PeerConnection
 	tracks           map[string]*webrtc.TrackLocalStaticRTP
+	selections       map[string]*layerSelection
 	extensions       map[string]map[uint8]uint8
 	packets          chan packet
 	ctx              context.Context
@@ -118,6 +129,7 @@ type Manager struct {
 	relayBytes          atomic.Int64
 	relayOverflows      atomic.Uint64
 	iceSource           turnclient.Source
+	restrictionLocks    map[string]*restrictionGuard
 }
 
 func New(c config.Config, ids *identity.Service, sources ...turnclient.Source) (*Manager, error) {
@@ -134,6 +146,11 @@ func New(c config.Config, ids *identity.Service, sources ...turnclient.Source) (
 	}
 	if err := media.RegisterDefaultCodecs(); err != nil {
 		return nil, err
+	}
+	for _, uri := range []string{sdp.SDESMidURI, sdp.SDESRTPStreamIDURI, sdp.SDESRepairRTPStreamIDURI} {
+		if err := media.RegisterHeaderExtension(webrtc.RTPHeaderExtensionCapability{URI: uri}, webrtc.RTPCodecTypeVideo); err != nil {
+			return nil, err
+		}
 	}
 	registry := &interceptor.Registry{}
 	if err := webrtc.RegisterDefaultInterceptors(media, registry); err != nil {
@@ -255,6 +272,12 @@ func (m *Manager) Join(ctx context.Context, p identity.Principal, connectionID, 
 	if err := m.allowed(ctx, p, a.RoomID); err != nil {
 		return Snapshot{}, err
 	}
+	unlock := m.lockRestrictions(a.RoomID)
+	defer unlock()
+	restriction, err := m.ids.VoiceRestriction(ctx, a.RoomID, p.User.ID)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	m.mu.Lock()
 	if m.closed || m.participants[connectionID] != nil {
 		m.mu.Unlock()
@@ -284,7 +307,9 @@ func (m *Manager) Join(ctx context.Context, p identity.Principal, connectionID, 
 	member := &participant{id: identity.NewID(), joinedAt: time.Now().UTC(), connection: connectionID, user: p.User.ID, session: p.SessionID, room: r, send: send, trackIDs: map[string]string{}, sources: map[string]*source{}, subscriptions: map[string]*subscription{}}
 	// No video sources exist at admission. Advertising them as active produces
 	// false camera/screen stop events when the client sends its initial state.
-	member.state = State{CameraOff: true, ScreenOff: true}
+	member.self = State{CameraOff: true, ScreenOff: true}
+	member.restriction = restriction
+	member.state = effectiveState(member.self, restriction)
 	if a.ICEExpiresAt != nil {
 		member.iceExpires = *a.ICEExpiresAt
 	}
@@ -297,26 +322,31 @@ func (m *Manager) Join(ctx context.Context, p identity.Principal, connectionID, 
 	return v, nil
 }
 func snapshot(p *participant) Snapshot {
-	v := Snapshot{ID: p.id, UserID: p.user, JoinedAt: p.joinedAt, State: p.state, Tracks: []Track{}}
+	v := Snapshot{ID: p.id, UserID: p.user, JoinedAt: p.joinedAt, State: p.state, SelfState: p.self, Restriction: p.restriction, Tracks: []Track{}}
 	if p.relay != nil {
 		v.EncodedTracks = p.relay.trackList()
 	}
 	for _, purpose := range trackPurposes {
 		if src := p.sources[purpose]; src != nil {
-			v.Tracks = append(v.Tracks, Track{Purpose: purpose, ID: p.id + "_" + purpose, Codec: src.codec})
+			v.Tracks = append(v.Tracks, Track{Purpose: purpose, ID: p.id + "_" + purpose, Codec: src.codec, Layers: p.availableLayers(purpose)})
 		}
 	}
 	return v
 }
 func (m *Manager) broadcast(r *room, value any) {
 	r.mu.Lock()
-	senders := []Send{}
-	for _, p := range r.members {
-		senders = append(senders, p.send)
+	defer r.mu.Unlock()
+	if event, ok := value.(map[string]any); ok {
+		if before, ok := event["participant"].(Snapshot); ok {
+			current := r.members[before.ID]
+			if current == nil || current.closed {
+				return
+			}
+			event["participant"] = snapshot(current)
+		}
 	}
-	r.mu.Unlock()
-	for _, send := range senders {
-		send(value)
+	for _, p := range r.members {
+		p.send(value)
 	}
 }
 func (m *Manager) get(id string) (*participant, error) {
@@ -378,11 +408,6 @@ func (m *Manager) Room(ctx context.Context, p identity.Principal, id string) ([]
 	return items, nil
 }
 func (m *Manager) SetState(id string, state State) error {
-	// Normalize before storing or broadcasting, including for older clients that
-	// send an independent mute flag with deafen.
-	if state.Deafened {
-		state.Muted = true
-	}
 	p, err := m.get(id)
 	if err != nil {
 		return err
@@ -393,7 +418,8 @@ func (m *Manager) SetState(id string, state State) error {
 		return identity.ErrNotFound
 	}
 	previous := p.state
-	p.state = state
+	p.self = state
+	p.state = effectiveState(state, p.restriction)
 	resetRelayVideo(p, previous)
 	v := snapshot(p)
 	p.room.mu.Unlock()
@@ -458,7 +484,7 @@ func (m *Manager) worker(fn func()) bool {
 }
 
 // Bound the peer's resources before Pion allocates transceivers or SCTP state.
-func validateOffer(offer webrtc.SessionDescription) error {
+func validateOffer(offer webrtc.SessionDescription, layered ...bool) error {
 	if offer.Type != webrtc.SDPTypeOffer || len(offer.SDP) > 96<<10 {
 		return identity.ErrInvalid
 	}
@@ -470,16 +496,26 @@ func validateOffer(offer webrtc.SessionDescription) error {
 		if media.MediaName.Media != "audio" && media.MediaName.Media != "video" {
 			return identity.ErrInvalid
 		}
+		rids := map[string]bool{}
 		for _, attribute := range media.Attributes {
 			if attribute.Key == "simulcast" || attribute.Key == "rid" {
-				return identity.ErrInvalid
+				if len(layered) == 0 || !layered[0] || media.MediaName.Media != "video" {
+					return identity.ErrInvalid
+				}
+				if attribute.Key == "rid" {
+					fields := strings.Fields(attribute.Value)
+					if len(fields) < 2 || fields[1] != "send" || (fields[0] != "h" && fields[0] != "m" && fields[0] != "l") || rids[fields[0]] {
+						return identity.ErrInvalid
+					}
+					rids[fields[0]] = true
+				}
 			}
 		}
 	}
 	return nil
 }
-func answer(ctx context.Context, pc *webrtc.PeerConnection, offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
-	if err := validateOffer(offer); err != nil {
+func answer(ctx context.Context, pc *webrtc.PeerConnection, offer webrtc.SessionDescription, layered ...bool) (webrtc.SessionDescription, error) {
+	if err := validateOffer(offer, layered...); err != nil {
 		return webrtc.SessionDescription{}, err
 	}
 	if err := pc.SetRemoteDescription(offer); err != nil {
@@ -503,13 +539,26 @@ func answer(ctx context.Context, pc *webrtc.PeerConnection, offer webrtc.Session
 		return webrtc.SessionDescription{}, ctx.Err()
 	}
 }
-func (m *Manager) Publish(ctx context.Context, id string, offer webrtc.SessionDescription, tracks map[string]string) (string, webrtc.SessionDescription, error) {
+func (m *Manager) Publish(ctx context.Context, id string, offer webrtc.SessionDescription, tracks map[string]string, publishedLayers ...map[string][]VideoLayer) (string, webrtc.SessionDescription, error) {
 	p, err := m.get(id)
 	if err != nil {
 		return "", webrtc.SessionDescription{}, err
 	}
 	if len(tracks) < 1 || len(tracks) > len(trackPurposes) {
 		return "", webrtc.SessionDescription{}, identity.ErrInvalid
+	}
+	layers := map[string][]VideoLayer{}
+	if len(publishedLayers) > 0 {
+		if err := validateLayers(tracks, publishedLayers[0]); err != nil {
+			return "", webrtc.SessionDescription{}, err
+		}
+		for purpose, values := range publishedLayers[0] {
+			layers[purpose] = append([]VideoLayer{}, values...)
+			sort.Slice(layers[purpose], func(i, j int) bool {
+				a, b := layers[purpose][i], layers[purpose][j]
+				return a.Width*a.Height > b.Width*b.Height || (a.Width*a.Height == b.Width*b.Height && a.FPS > b.FPS)
+			})
+		}
 	}
 	trackIDs := map[string]string{}
 	for purpose, trackID := range tracks {
@@ -518,7 +567,7 @@ func (m *Manager) Publish(ctx context.Context, id string, offer webrtc.SessionDe
 		}
 		trackIDs[trackID] = purpose
 	}
-	if err := validateOffer(offer); err != nil {
+	if err := validateOffer(offer, len(layers) > 0); err != nil {
 		return "", webrtc.SessionDescription{}, err
 	}
 	peerID := identity.NewID()
@@ -543,6 +592,7 @@ func (m *Manager) Publish(ctx context.Context, id string, offer webrtc.SessionDe
 	p.publish = pc
 	p.publishID = peerID
 	p.trackIDs = trackIDs
+	p.videoLayers = layers
 	p.sources = map[string]*source{}
 	initial := snapshot(p)
 	p.room.mu.Unlock()
@@ -569,13 +619,43 @@ func (m *Manager) Publish(ctx context.Context, id string, offer webrtc.SessionDe
 		// No decode/re-encode: retain the negotiated MIME, clock, channels,
 		// fmtp, and feedback. Auxiliary RTX is handled by Pion's interceptors.
 		src := &source{purpose: purpose, codec: codec, ssrc: uint32(remote.SSRC()), peer: pc, extensions: receiver.GetParameters().HeaderExtensions}
+		rid := remote.RID()
+		if rid == "" && len(layers[purpose]) == 1 {
+			rid = layers[purpose][0].ID
+		}
+		if rid != "" {
+			for _, layer := range layers[purpose] {
+				if layer.ID == rid {
+					src.rid = rid
+					src.layer = layer
+					break
+				}
+			}
+			if src.rid == "" {
+				m.worker(func() { m.leave(id, p, pc) })
+				return
+			}
+		} else if len(layers[purpose]) > 0 {
+			m.worker(func() { m.leave(id, p, pc) })
+			return
+		}
 		p.room.mu.Lock()
-		if p.closed || p.publish != pc || p.sources[purpose] != nil {
+		group := p.sources[purpose]
+		if p.closed || p.publish != pc || (group != nil && (src.rid == "" || group.layers[src.rid] != nil || !codecEqual(group.codec, src.codec))) {
 			p.room.mu.Unlock()
 			m.worker(func() { m.leave(id, p, pc) })
 			return
 		}
-		p.sources[purpose] = src
+		if group == nil {
+			p.sources[purpose] = src
+			group = src
+		}
+		if src.rid != "" {
+			if group.layers == nil {
+				group.layers = map[string]*source{}
+			}
+			group.layers[src.rid] = src
+		}
 		v := snapshot(p)
 		p.room.mu.Unlock()
 		m.broadcast(p.room, map[string]any{"type": "media.tracks", "participant": v})
@@ -583,7 +663,7 @@ func (m *Manager) Publish(ctx context.Context, id string, offer webrtc.SessionDe
 			pc.Close()
 		}
 	})
-	result, err := answer(ctx, pc, offer)
+	result, err := answer(ctx, pc, offer, len(layers) > 0)
 	if err != nil {
 		m.leave(id, p, pc)
 		return "", webrtc.SessionDescription{}, err
@@ -613,7 +693,12 @@ func normalizedFMTP(line string) string {
 func (m *Manager) forward(p *participant, src *source, remote *webrtc.TrackRemote) {
 	defer func() {
 		p.room.mu.Lock()
-		if p.sources[src.purpose] == src {
+		if group := p.sources[src.purpose]; src.rid != "" && group != nil && group.layers[src.rid] == src {
+			delete(group.layers, src.rid)
+			if len(group.layers) == 0 {
+				delete(p.sources, src.purpose)
+			}
+		} else if src.rid == "" && p.sources[src.purpose] == src {
 			delete(p.sources, src.purpose)
 		}
 		v := snapshot(p)
@@ -623,6 +708,7 @@ func (m *Manager) forward(p *participant, src *source, remote *webrtc.TrackRemot
 			m.broadcast(p.room, map[string]any{"type": "media.tracks", "participant": v})
 		}
 	}()
+	frame := videoFrame{}
 	for {
 		packet, _, err := remote.ReadRTP()
 		if err != nil {
@@ -631,6 +717,12 @@ func (m *Manager) forward(p *participant, src *source, remote *webrtc.TrackRemot
 		if !codecEqual(remote.Codec().RTPCodecCapability, src.codec) {
 			m.leave(p.connection, p, src.peer)
 			return
+		}
+		if src.rid != "" {
+			if complete := frame.push(packet, src.codec.MimeType); complete != nil {
+				m.forwardLayer(p, src, complete)
+			}
+			continue
 		}
 		p.room.mu.Lock()
 		receivers := []*subscription{}
@@ -668,7 +760,7 @@ func packetMessage(purpose string, p *rtp.Packet, mapping map[uint8]uint8) packe
 	}
 	return packet{purpose: purpose, rtp: copy}
 }
-func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer webrtc.SessionDescription) (string, webrtc.SessionDescription, error) {
+func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer webrtc.SessionDescription, initial ...map[string]string) (string, webrtc.SessionDescription, error) {
 	owner, err := m.get(id)
 	if err != nil {
 		return "", webrtc.SessionDescription{}, err
@@ -695,7 +787,7 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 		return "", webrtc.SessionDescription{}, err
 	}
 	subCtx, cancel := context.WithCancel(context.Background())
-	sub := &subscription{id: identity.NewID(), owner: owner, publisher: publisher, pc: pc, tracks: map[string]*webrtc.TrackLocalStaticRTP{}, extensions: map[string]map[uint8]uint8{}, packets: make(chan packet, 128), ctx: subCtx, cancel: cancel}
+	sub := &subscription{id: identity.NewID(), owner: owner, publisher: publisher, pc: pc, tracks: map[string]*webrtc.TrackLocalStaticRTP{}, selections: map[string]*layerSelection{}, extensions: map[string]map[uint8]uint8{}, packets: make(chan packet, 2048), ctx: subCtx, cancel: cancel}
 	success := false
 	defer func() {
 		if !success {
@@ -722,7 +814,7 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 				for _, packet := range packets {
 					switch packet.(type) {
 					case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
-						m.keyframe(publisher, src)
+						m.subscriptionKeyframe(sub, src)
 					}
 				}
 			}
@@ -782,6 +874,32 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 			owner.room.mu.Unlock()
 			return "", webrtc.SessionDescription{}, identity.ErrConflict
 		}
+		available := publisher.availableLayers(src.purpose)
+		requested := ""
+		if len(initial) > 0 {
+			requested = initial[0][src.purpose]
+		}
+		if len(available) > 0 {
+			if requested == "" {
+				requested = available[0].ID
+			}
+			if src.layers[requested] == nil {
+				owner.room.mu.Unlock()
+				return "", webrtc.SessionDescription{}, ErrQuality
+			}
+			sub.selections[src.purpose] = &layerSelection{wanted: requested}
+		} else if requested != "" {
+			owner.room.mu.Unlock()
+			return "", webrtc.SessionDescription{}, ErrQuality
+		}
+	}
+	if len(initial) > 0 {
+		for purpose := range initial[0] {
+			if sub.selections[purpose] == nil {
+				owner.room.mu.Unlock()
+				return "", webrtc.SessionDescription{}, ErrQuality
+			}
+		}
 	}
 	previous := owner.subscriptions[publisherID]
 	owner.subscriptions[publisherID] = sub
@@ -804,6 +922,9 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 			case packet := <-sub.packets:
 				owner.room.mu.Lock()
 				blocked := owner.closed || publisher.closed || blockedSource(publisher.state, owner.state, packet.purpose)
+				if selection := sub.selections[packet.purpose]; !blocked && selection != nil {
+					blocked = !selection.continuity(packet.rtp, packet.epoch)
+				}
 				owner.room.mu.Unlock()
 				if !blocked {
 					if err := sub.tracks[packet.purpose].WriteRTP(packet.rtp); err != nil {
@@ -819,8 +940,38 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 	}
 	for _, src := range sources {
 		if !audioPurpose(src.purpose) {
-			m.keyframe(publisher, src)
+			m.subscriptionKeyframe(sub, src)
 		}
+	}
+	if len(sub.selections) > 0 && !m.worker(func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-subCtx.Done():
+				return
+			case <-ticker.C:
+				pending := []*source{}
+				owner.room.mu.Lock()
+				for purpose, choice := range sub.selections {
+					if choice.active == choice.wanted {
+						continue
+					}
+					if group := publisher.sources[purpose]; group != nil {
+						if source := group.layers[choice.wanted]; source != nil {
+							pending = append(pending, source)
+						}
+					}
+				}
+				owner.room.mu.Unlock()
+				for _, source := range pending {
+					m.keyframe(publisher, source)
+				}
+			}
+		}
+	}) {
+		m.dropSubscription(sub)
+		return "", webrtc.SessionDescription{}, ErrCapacity
 	}
 	success = true
 	return sub.id, description, nil

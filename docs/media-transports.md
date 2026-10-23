@@ -28,6 +28,23 @@ The container example uses cloudflared's `auto` transport, which prefers QUIC fo
 
 Create an admission, open/authenticate the event socket, then send `media.join`. Apply `ice_servers` and `ice_transport_policy` from the admission to every publishing/receiving peer. Publish an SDP offer and an audio/camera/screen purpose-to-track-ID mapping; subscribe with an offer supporting the source codecs. The SFU forwards encoded RTP without decoding or transcoding. Codecs are negotiated; they are not limited to VP8.
 
+Instances advertising `media.layers.v1` accept video layer metadata on publication.
+Each layer declares its RID, dimensions and FPS. Clients publish the selected
+capture quality and distinct lower copies bounded to 720p/30 and 360p/15.
+`media.subscribe` accepts initial per-source quality selections;
+`media.subscription.quality` changes only the requesting viewer's subscription
+and receives an acknowledgement. The relay switches on complete keyframes,
+preserves outgoing RTP sequence/timestamp continuity and discards queued packets
+from the previous layer. Keyframe requests follow the requested source layer.
+Legacy sources remain single-quality; unsupported manual choices are rejected.
+
+The client defaults each remote tile to Auto and samples incoming statistics
+every two seconds. Two consecutive samples above 5% packet loss or 10% decode
+drops trigger a downgrade. Twenty seconds below 1% loss and 2% decode drops
+permit an upward probe, with a ten-second switch cooldown. Missing metrics and
+unchanged screen frames are ignored. A fixed viewer choice suspends automatic
+changes until Auto is selected again. Viewer choices never alter source capture.
+
 When temporary credentials are used, `ice_expires_at` is the earliest relevant client/SFU expiry. Two minutes before managed credentials expire, the server sends `media.reconnect_required`. Obtain a new admission, leave/rejoin, republish and recreate receiver subscriptions before expiry. Merely fetching `/ice` does not replace existing SFU allocations or extend participant lifetime. Expired managed participants are removed. Built-in host-relay credentials can be refreshed through `/ice`; recreate/restart affected peers as needed.
 
 ## Encoded WebSocket client contract
@@ -44,3 +61,14 @@ The machine-readable [websocket.json](websocket.json) is generated from the serv
 Limits include 512 KiB per input frame, 64 KiB per audio frame, 8 MiB/s and 600 input frames/s with bounded bursts. Each receiver queue holds at most 64 frames/2 MiB; overflow disconnects that receiver. Control messages and keyframe requests are rate limited. Clients must regulate bitrate and send buffering, synchronize audio/video, and handle reconnects. Reliable WebSocket delivery can increase latency under packet loss.
 
 Browsers require WebCodecs encoders/decoders and compatible codecs; desktop clients can use native codec APIs with the same framing. Device and browser compatibility checks are described in [testing](testing.md).
+
+Both transports honor the publisher's selected capture resolution and frame rate.
+The WebSocket path has one quality per source and does not implement viewer
+adaptation. Camera/screen audio remains separate from microphone audio.
+
+Instances advertising `media.moderation.v1` expose separate participant
+`self_state` and moderator `restriction` fields alongside effective `state`.
+Moderator deafen blocks incoming audio and outgoing microphone audio; moderator
+mute blocks outgoing microphone audio. Checks apply before forwarding and queued
+delivery on both transports. Restrictions persist independently of sessions;
+clearing them restores the participant's own choices.

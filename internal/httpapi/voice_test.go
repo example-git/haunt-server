@@ -326,6 +326,36 @@ func TestVoiceCameraScreenCodecForwardingAndRooms(t *testing.T) {
 	wsSend(t, aliceWS, map[string]any{"type": "media.state", "state": voice.State{}})
 	wsRead(t, aliceWS, "media.state.accepted")
 	awaitMedia(t, bobReceives)
+	restrictionPath := "/api/v1/voice/" + room.ID + "/restrictions/" + alice.User.ID
+	f.call(t, "PATCH", restrictionPath, f.owner.Token, map[string]bool{"deafened": true}, 200, nil)
+	wsSend(t, aliceWS, map[string]any{"type": "media.state", "state": voice.State{}})
+	wsRead(t, aliceWS, "media.state.accepted")
+	drain = time.NewTimer(200 * time.Millisecond)
+	for draining := true; draining; {
+		select {
+		case <-bobReceives:
+		case <-drain.C:
+			draining = false
+		}
+	}
+	deadlineMute = time.NewTimer(300 * time.Millisecond)
+	videoReceived = false
+	for checking := true; checking; {
+		select {
+		case packet := <-bobReceives:
+			if packet.purpose == "audio" {
+				t.Fatal("moderator deafen leaked microphone RTP after self unmute")
+			}
+			videoReceived = true
+		case <-deadlineMute.C:
+			checking = false
+		}
+	}
+	if !videoReceived {
+		t.Fatal("moderator deafen stopped independent video")
+	}
+	f.call(t, "PATCH", restrictionPath, f.owner.Token, map[string]bool{"deafened": false}, 200, nil)
+	awaitMedia(t, bobReceives)
 	wsSend(t, aliceWS, map[string]any{"type": "media.leave"})
 	wsRead(t, aliceWS, "media.left")
 	bobWS.CloseNow()

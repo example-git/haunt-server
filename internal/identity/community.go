@@ -159,7 +159,7 @@ type Member struct {
 }
 
 func (s *Service) Members(ctx context.Context, p Principal, after string) ([]Member, error) {
-	if !p.Can(Administrator) && p.Permissions&(ManageRoles|KickMembers|BanMembers|DeleteMembers|ViewMemberIPs|ResetPasswords) == 0 {
+	if !p.Can(Administrator) && p.Permissions&(ManageRoles|KickMembers|BanMembers|DeleteMembers|ViewMemberIPs|ResetPasswords|MuteMembers|DeafenMembers) == 0 {
 		return nil, ErrForbidden
 	}
 	if after != "" && !ValidID(after) {

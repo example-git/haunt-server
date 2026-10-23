@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -294,6 +295,9 @@ func TestHTTPBoundaries(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 204 || resp.Header.Get("Access-Control-Allow-Origin") != "https://client.example.test" {
 		t.Fatal("allowed-origin preflight failed")
+	}
+	if !strings.Contains(resp.Header.Get("Access-Control-Allow-Methods"), "PATCH") {
+		t.Fatal("voice moderation PATCH is unavailable to browser clients")
 	}
 	req.Header.Set("Origin", "https://disallowed.example.test")
 	resp, err = f.server.Client().Do(req)

@@ -185,6 +185,17 @@ func TestCloudflaredWebSocketMediaIsolationLifecycleAndDecode(t *testing.T) {
 	if !bytes.Equal(mediaReceive(t, sub)[40:], []byte("publisher resumed")) {
 		t.Fatal("publisher did not resume after undeafen")
 	}
+	restrictionPath := "/api/v1/voice/" + room.ID + "/restrictions/" + alice.User.ID
+	f.call(t, "PATCH", restrictionPath, f.owner.Token, map[string]bool{"deafened": true}, 200, nil)
+	wsSend(t, pubEvents, map[string]any{"type": "media.state", "state": voice.State{}})
+	wsRead(t, pubEvents, "media.state.accepted")
+	mediaChunk(t, pub, 0, revision, 6, true, []byte("restricted publisher"))
+	noMedia(t, sub)
+	f.call(t, "PATCH", restrictionPath, f.owner.Token, map[string]bool{"deafened": false}, 200, nil)
+	mediaChunk(t, pub, 0, revision, 7, true, []byte("restriction cleared"))
+	if !bytes.Equal(mediaReceive(t, sub)[40:], []byte("restriction cleared")) {
+		t.Fatal("cleared restriction did not restore own unmuted state")
+	}
 	scratch := t.TempDir()
 	source := filepath.Join(scratch, "source.h264")
 	output := filepath.Join(scratch, "forwarded.h264")

@@ -1749,11 +1749,32 @@
               "boolean"
             ]
           },
+          "layer": {
+            "type": "string"
+          },
+          "layers": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/VoiceVideoLayer"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
           "peer_id": {
             "type": "string"
           },
           "publisher_id": {
             "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "qualities": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "sdp": {
             "$ref": "#/components/schemas/V4SessionDescription"
@@ -2492,7 +2513,7 @@
             "type": "string"
           },
           "permissions": {
-            "maximum": 65535,
+            "maximum": 262143,
             "minimum": 0,
             "type": "integer"
           },
@@ -2722,6 +2743,24 @@
         "required": [
           "users"
         ],
+        "type": "object"
+      },
+      "HttpapiVoiceRestrictionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deafened": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "muted": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
         "type": "object"
       },
       "IdentityAppeal": {
@@ -3344,6 +3383,48 @@
         ],
         "type": "object"
       },
+      "IdentityVoiceRestriction": {
+        "properties": {
+          "deafened": {
+            "type": "boolean"
+          },
+          "muted": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "muted",
+          "deafened"
+        ],
+        "type": "object"
+      },
+      "IdentityVoiceRestrictionMember": {
+        "properties": {
+          "deafened": {
+            "type": "boolean"
+          },
+          "muted": {
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/IdentityUser"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "muted",
+          "deafened",
+          "user"
+        ],
+        "type": "object"
+      },
       "ServerextensionConfiguration": {
         "properties": {
           "category": {
@@ -3790,6 +3871,9 @@
           "participant_id": {
             "type": "string"
           },
+          "restriction": {
+            "$ref": "#/components/schemas/IdentityVoiceRestriction"
+          },
           "state": {
             "$ref": "#/components/schemas/VoiceState"
           },
@@ -3819,6 +3903,12 @@
           },
           "participant_id": {
             "type": "string"
+          },
+          "restriction": {
+            "$ref": "#/components/schemas/IdentityVoiceRestriction"
+          },
+          "self_state": {
+            "$ref": "#/components/schemas/VoiceState"
           },
           "state": {
             "$ref": "#/components/schemas/VoiceState"
@@ -3873,6 +3963,12 @@
           "codec": {
             "$ref": "#/components/schemas/V4RTPCodecCapability"
           },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceVideoLayer"
+            },
+            "type": "array"
+          },
           "purpose": {
             "type": "string"
           },
@@ -3884,6 +3980,30 @@
           "purpose",
           "track_id",
           "codec"
+        ],
+        "type": "object"
+      },
+      "VoiceVideoLayer": {
+        "properties": {
+          "fps": {
+            "format": "double",
+            "type": "number"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "width",
+          "height",
+          "fps"
         ],
         "type": "object"
       }
@@ -3943,7 +4063,10 @@
         ]
       },
       "media.publish": {
-        "description": "WebRTC only. SDP offer and purpose-to-track-ID map. Purposes: audio (microphone), camera, screen, camera_audio, screen_audio. Replaces prior publishing peer and invalidates its receiver subscriptions.",
+        "description": "WebRTC only. SDP offer and purpose-to-track-ID map. Purposes: audio (microphone), camera, screen, camera_audio, screen_audio. Replaces prior publishing peer and invalidates its receiver subscriptions. With media.layers.v1, layers maps camera/screen to at most three representations with id (h, m, l), width, height and fps; SDP RID identifies each copy. Track metadata lists available representations. Legacy publications remain single-quality.",
+        "optional": [
+          "layers"
+        ],
         "reply": "media.answer",
         "required": [
           "type",
@@ -3952,7 +4075,7 @@
         ]
       },
       "media.state": {
-        "description": "Replace all muted, deafened, camera_off and screen_off booleans. muted affects microphone only; deafened blocks all incoming audio and forces muted=true. camera_off and screen_off block both video and associated source audio. These gates are enforced by the server for WebRTC and encoded WebSocket media, including queued packets.",
+        "description": "Replace self-selected muted, deafened, camera_off and screen_off booleans. Persistent channel restrictions remain independent; participant self_state reports the submitted choices, restriction reports moderator flags, and state reports effective state. muted affects microphone only; deafened blocks all incoming audio and forces muted=true. camera_off and screen_off block both video and associated source audio. These gates are enforced by the server for WebRTC and encoded WebSocket media, including queued packets.",
         "reply": "media.state.accepted",
         "required": [
           "type",
@@ -3960,12 +4083,25 @@
         ]
       },
       "media.subscribe": {
-        "description": "WebRTC only. Receiver offer must support publisher codecs. Only publishers in the same room are accessible.",
+        "description": "WebRTC only. Receiver offer must support publisher codecs. Only publishers in the same room are accessible. Optional qualities maps each video purpose to an advertised layer ID; omitted entries initially select the highest available quality. Each subscriber owns its selection; publishing settings are unaffected.",
+        "optional": [
+          "qualities"
+        ],
         "reply": "media.answer",
         "required": [
           "type",
           "publisher_id",
           "sdp"
+        ]
+      },
+      "media.subscription.quality": {
+        "description": "Select an advertised video layer for this subscriber only. Changes take effect on a complete keyframe; media.subscription.quality.changed reports the applied layer. Unknown layers and legacy single-quality sources return media_quality_unavailable.",
+        "reply": "media.subscription.quality.accepted",
+        "required": [
+          "type",
+          "publisher_id",
+          "purpose",
+          "layer"
         ]
       },
       "presence.watch": {
@@ -4075,6 +4211,18 @@
       ],
       "media.state.accepted": [
         "type"
+      ],
+      "media.subscription.quality.accepted": [
+        "type",
+        "publisher_id",
+        "purpose",
+        "layer"
+      ],
+      "media.subscription.quality.changed": [
+        "type",
+        "publisher_id",
+        "purpose",
+        "layer"
       ],
       "media.tracks": [
         "type",

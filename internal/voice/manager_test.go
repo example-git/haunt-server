@@ -61,6 +61,33 @@ func TestDeafenNormalizesStoredAndBroadcastState(t *testing.T) {
 		}
 	}
 }
+
+func TestParticipantBroadcastUsesCurrentRestrictionsAndMembership(t *testing.T) {
+	r := &room{members: map[string]*participant{}}
+	var received []Snapshot
+	p := &participant{id: "sender", room: r, sources: map[string]*source{}, send: func(value any) bool {
+		received = append(received, value.(map[string]any)["participant"].(Snapshot))
+		return true
+	}}
+	r.members[p.id] = p
+	m := &Manager{participants: map[string]*participant{p.id: p}}
+	stale := snapshot(p)
+	p.restriction = identity.VoiceRestriction{Muted: true, Deafened: true}
+	p.state = effectiveState(p.self, p.restriction)
+	for _, kind := range []string{"media.participant.state", "media.tracks", "media.participant.joined"} {
+		m.broadcast(r, map[string]any{"type": kind, "participant": stale})
+		if latest := received[len(received)-1]; !latest.Restriction.Deafened || !latest.State.Muted {
+			t.Fatal("delayed broadcast replaced newer restrictions", kind, latest)
+		}
+	}
+	p.closed = true
+	delete(r.members, p.id)
+	r.members["viewer"] = &participant{send: p.send}
+	m.broadcast(r, map[string]any{"type": "media.tracks", "participant": stale})
+	if len(received) != 3 {
+		t.Fatal("delayed broadcast restored a departed participant")
+	}
+}
 func TestCodecParametersAndPeerCapacity(t *testing.T) {
 	a := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "packetization-mode=1;profile-level-id=42001f"}
 	b := a

@@ -43,7 +43,9 @@ const (
 	ResetPasswords
 	ManageConfiguration
 	Administrator
-	AllPermissions     int64 = (1 << 16) - 1
+	MuteMembers
+	DeafenMembers
+	AllPermissions     int64 = (1 << 18) - 1
 	ChannelPermissions       = ViewChannel | SendMessages | ConnectVoice
 )
 

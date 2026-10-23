@@ -1748,11 +1748,32 @@
               "boolean"
             ]
           },
+          "layer": {
+            "type": "string"
+          },
+          "layers": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/VoiceVideoLayer"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
           "peer_id": {
             "type": "string"
           },
           "publisher_id": {
             "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "qualities": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "sdp": {
             "$ref": "#/components/schemas/V4SessionDescription"
@@ -2491,7 +2512,7 @@
             "type": "string"
           },
           "permissions": {
-            "maximum": 65535,
+            "maximum": 262143,
             "minimum": 0,
             "type": "integer"
           },
@@ -2721,6 +2742,24 @@
         "required": [
           "users"
         ],
+        "type": "object"
+      },
+      "HttpapiVoiceRestrictionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deafened": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "muted": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
         "type": "object"
       },
       "IdentityAppeal": {
@@ -3343,6 +3382,48 @@
         ],
         "type": "object"
       },
+      "IdentityVoiceRestriction": {
+        "properties": {
+          "deafened": {
+            "type": "boolean"
+          },
+          "muted": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "muted",
+          "deafened"
+        ],
+        "type": "object"
+      },
+      "IdentityVoiceRestrictionMember": {
+        "properties": {
+          "deafened": {
+            "type": "boolean"
+          },
+          "muted": {
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/IdentityUser"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "muted",
+          "deafened",
+          "user"
+        ],
+        "type": "object"
+      },
       "ServerextensionConfiguration": {
         "properties": {
           "category": {
@@ -3789,6 +3870,9 @@
           "participant_id": {
             "type": "string"
           },
+          "restriction": {
+            "$ref": "#/components/schemas/IdentityVoiceRestriction"
+          },
           "state": {
             "$ref": "#/components/schemas/VoiceState"
           },
@@ -3818,6 +3902,12 @@
           },
           "participant_id": {
             "type": "string"
+          },
+          "restriction": {
+            "$ref": "#/components/schemas/IdentityVoiceRestriction"
+          },
+          "self_state": {
+            "$ref": "#/components/schemas/VoiceState"
           },
           "state": {
             "$ref": "#/components/schemas/VoiceState"
@@ -3872,6 +3962,12 @@
           "codec": {
             "$ref": "#/components/schemas/V4RTPCodecCapability"
           },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceVideoLayer"
+            },
+            "type": "array"
+          },
           "purpose": {
             "type": "string"
           },
@@ -3883,6 +3979,30 @@
           "purpose",
           "track_id",
           "codec"
+        ],
+        "type": "object"
+      },
+      "VoiceVideoLayer": {
+        "properties": {
+          "fps": {
+            "format": "double",
+            "type": "number"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "width",
+          "height",
+          "fps"
         ],
         "type": "object"
       }
@@ -9589,6 +9709,137 @@
         "tags": [
           "voice"
         ]
+      }
+    },
+    "/api/v1/voice/{id}/restrictions": {
+      "get": {
+        "description": "",
+        "operationId": "voiceRestrictions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exclusive UUID cursor; up to 100 results.",
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "description": "Exclusive UUID cursor; up to 100 results.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IdentityVoiceRestrictionMember"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List persistent channel voice restrictions with member identities (Mute members or Deafen members)",
+        "tags": [
+          "voice"
+        ]
+      }
+    },
+    "/api/v1/voice/{id}/restrictions/{user}": {
+      "patch": {
+        "description": "",
+        "operationId": "setVoiceRestriction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HttpapiVoiceRestrictionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityVoiceRestriction"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Change a lower-ranked member's channel voice restrictions; each supplied flag requires its corresponding permission",
+        "tags": [
+          "voice"
+        ],
+        "x-forbid-unknown-cookie": true,
+        "x-forbid-unknown-header": true,
+        "x-forbid-unknown-path": true,
+        "x-forbid-unknown-query": true
       }
     },
     "/healthz": {

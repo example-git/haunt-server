@@ -8,10 +8,11 @@ import (
 )
 
 type PresenceMember struct {
-	ID       string    `json:"participant_id"`
-	UserID   string    `json:"user_id"`
-	JoinedAt time.Time `json:"joined_at"`
-	State    State     `json:"state"`
+	ID          string                    `json:"participant_id"`
+	UserID      string                    `json:"user_id"`
+	JoinedAt    time.Time                 `json:"joined_at"`
+	State       State                     `json:"state"`
+	Restriction identity.VoiceRestriction `json:"restriction,omitempty"`
 }
 
 // Presence exposes only rooms this principal can view and join. Room locks
@@ -34,7 +35,7 @@ func (m *Manager) Presence(ctx context.Context, p identity.Principal) (map[strin
 		r.mu.Lock()
 		members := make([]PresenceMember, 0, len(r.members))
 		for _, p := range r.members {
-			members = append(members, PresenceMember{ID: p.id, UserID: p.user, JoinedAt: p.joinedAt, State: p.state})
+			members = append(members, PresenceMember{ID: p.id, UserID: p.user, JoinedAt: p.joinedAt, State: p.state, Restriction: p.restriction})
 		}
 		r.mu.Unlock()
 		if len(members) > 0 {

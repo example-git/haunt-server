@@ -36,12 +36,34 @@ permissions they do not possess. Role changes apply to existing sessions.
 | 8192 | Reset lower-ranked members' passwords |
 | 16384 | Manage configuration, storage, extensions and diagnostics |
 | 32768 | Administrator: all permissions and channel override bypass |
+| 65536 | Mute lower-ranked voice members |
+| 131072 | Deafen lower-ranked voice members |
 
 Message moderation does not grant access to private DMs or the ability to rewrite
 someone else's message. Host recovery remains host-only; password resets require
 ResetPasswords, and diagnostic operations require ManageConfiguration. Existing
-roles migrate to rank 1 without receiving new powers.
+roles migrate to rank 1. The voice-moderation migration grants Mute members and
+Deafen members once to roles that already have Kick or Ban; later edits control
+the two permissions independently. Owners and administrators receive both.
 The generated API documents describe the corresponding endpoints and wire types.
+
+## Voice restrictions
+
+Participant context menus provide moderator mute/deafen. The channel's **Voice
+restrictions** list also clears restrictions while a member is absent. The
+authenticated GET and PATCH routes under `/api/v1/voice/{id}/restrictions`
+check current permissions, channel access and role hierarchy, and record updates
+in the audit log. Lists include member identities and return up to 100 entries;
+pass the last user ID as `after` for the next page. Existing restrictions can be
+cleared for deleted accounts, but new restrictions cannot be added to them.
+Restrictions are stored per instance, channel and user and remain through
+leaving, reconnecting, multiple sessions and server restarts.
+
+Self-selected mute/deafen remains independent. Effective state and restriction
+flags are broadcast to clients; clearing a restriction restores the member's
+own choices. Deafen blocks incoming audio and outgoing microphone audio on both
+transports, including queued delivery. Independent camera and screen audio is
+preserved.
 
 ## Account actions
 

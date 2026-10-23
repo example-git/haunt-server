@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -248,5 +249,63 @@ func TestRoleSectionUpgradePreservesRoles(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx, `SELECT display_separately FROM chatxo.roles WHERE id=$1`, id).Scan(&display); err != nil || !display {
 		t.Fatal("repeat migration lost the saved setting")
+	}
+}
+
+func TestVoiceModerationPermissionUpgradeRunsOnce(t *testing.T) {
+	pool, instance := testutil.Database(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA chatxo; CREATE TABLE chatxo.schema_migrations(version integer PRIMARY KEY); INSERT INTO chatxo.schema_migrations VALUES(17)`); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := migrations.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Name() > "017_administrator.sql" {
+			continue
+		}
+		raw, err := migrations.ReadFile("migrations/" + entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = pool.Exec(ctx, string(raw)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO chatxo.instances(id) VALUES($1)`, instance); err != nil {
+		t.Fatal(err)
+	}
+	for _, bits := range []int{7, 128, 256, 384} {
+		if _, err := pool.Exec(ctx, `INSERT INTO chatxo.roles(id,instance_id,name,permissions,position) VALUES(gen_random_uuid(),$1,$2,$3,10)`, instance, fmt.Sprint(bits), bits); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, pool, instance); err != nil {
+		t.Fatal(err)
+	}
+	for _, original := range []int{7, 128, 256, 384} {
+		var bits int
+		if err := pool.QueryRow(ctx, `SELECT permissions FROM chatxo.roles WHERE instance_id=$1 AND name=$2`, instance, fmt.Sprint(original)).Scan(&bits); err != nil {
+			t.Fatal(err)
+		}
+		expected := original
+		if original&384 != 0 {
+			expected |= 196608
+		}
+		if bits != expected {
+			t.Fatalf("role %d: got %d, want %d", original, bits, expected)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE chatxo.roles SET permissions=128|65536 WHERE instance_id=$1 AND name='128'`, instance); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, pool, instance); err != nil {
+		t.Fatal(err)
+	}
+	var bits int
+	if err := pool.QueryRow(ctx, `SELECT permissions FROM chatxo.roles WHERE instance_id=$1 AND name='128'`, instance).Scan(&bits); err != nil || bits != 128|65536 {
+		t.Fatal("migration replaced independent role edit", bits, err)
 	}
 }

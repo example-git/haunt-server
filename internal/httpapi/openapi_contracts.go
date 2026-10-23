@@ -265,6 +265,8 @@ func endpointContracts() map[string]endpointContract {
 	add("GET /api/v1/attachments/{id}", "downloadAttachment", "Download an authorized attachment; supports Range and HEAD", nil, nil, 200)
 	add("DELETE /api/v1/attachments/{id}", "deleteAttachment", "Delete an owned attachment", nil, nil, 204)
 	add("POST /api/v1/voice/{id}/admissions", "admitVoice", "Get a single-use room admission and automatic transport", nil, voice.Admission{}, 201)
+	add("GET /api/v1/voice/{id}/restrictions", "voiceRestrictions", "List persistent channel voice restrictions with member identities (Mute members or Deafen members)", nil, []identity.VoiceRestrictionMember{}, 200)
+	add("PATCH /api/v1/voice/{id}/restrictions/{user}", "setVoiceRestriction", "Change a lower-ranked member's channel voice restrictions; each supplied flag requires its corresponding permission", VoiceRestrictionRequest{}, identity.VoiceRestriction{}, 200)
 	add("GET /api/v1/voice/{id}", "getVoiceRoom", "List current room participants and tracks", nil, participantsResponse{}, 200)
 	add("GET /api/v1/voice/{id}/ice", "getICE", "Refresh authorized ICE credentials", nil, iceResponse{}, 200)
 	add("GET /api/v1/events", "events", "Upgrade to authenticated events and signaling WebSocket", nil, nil, 101)
@@ -282,7 +284,7 @@ func endpointContracts() map[string]endpointContract {
 		v.description = "Public feeds require no session. Local distribution requires a bearer session token."
 		c[pattern] = v
 	}
-	for _, pattern := range []string{"GET /api/v1/users", "GET /api/v1/members", "GET /api/v1/conversations", "GET /api/v1/read-state"} {
+	for _, pattern := range []string{"GET /api/v1/users", "GET /api/v1/members", "GET /api/v1/conversations", "GET /api/v1/read-state", "GET /api/v1/voice/{id}/restrictions"} {
 		v := c[pattern]
 		v.query = afterQuery{}
 		c[pattern] = v

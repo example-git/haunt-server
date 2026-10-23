@@ -65,18 +65,22 @@ func (g *gateway) close(ctx context.Context) error {
 }
 
 type eventCommand struct {
-	Type          string                     `json:"type"`
-	Token         string                     `json:"token,omitempty"`
-	Conversations []string                   `json:"conversations,omitempty"`
-	Enabled       *bool                      `json:"enabled,omitempty"`
-	After         *int64                     `json:"after_event,omitempty"`
-	Admission     string                     `json:"admission_id,omitempty"`
-	Publisher     string                     `json:"publisher_id,omitempty"`
-	Peer          string                     `json:"peer_id,omitempty"`
-	SDP           *webrtc.SessionDescription `json:"sdp,omitempty"`
-	Tracks        map[string]string          `json:"tracks,omitempty"`
-	State         *voice.State               `json:"state,omitempty"`
-	ICE           *webrtc.ICECandidateInit   `json:"candidate,omitempty"`
+	Type          string                        `json:"type"`
+	Token         string                        `json:"token,omitempty"`
+	Conversations []string                      `json:"conversations,omitempty"`
+	Enabled       *bool                         `json:"enabled,omitempty"`
+	After         *int64                        `json:"after_event,omitempty"`
+	Admission     string                        `json:"admission_id,omitempty"`
+	Publisher     string                        `json:"publisher_id,omitempty"`
+	Peer          string                        `json:"peer_id,omitempty"`
+	SDP           *webrtc.SessionDescription    `json:"sdp,omitempty"`
+	Tracks        map[string]string             `json:"tracks,omitempty"`
+	Layers        map[string][]voice.VideoLayer `json:"layers,omitempty"`
+	Qualities     map[string]string             `json:"qualities,omitempty"`
+	Purpose       string                        `json:"purpose,omitempty"`
+	Layer         string                        `json:"layer,omitempty"`
+	State         *voice.State                  `json:"state,omitempty"`
+	ICE           *webrtc.ICECandidateInit      `json:"candidate,omitempty"`
 }
 
 func (g *gateway) handle(w http.ResponseWriter, r *http.Request) {
@@ -355,7 +359,7 @@ func (g *gateway) handle(w http.ResponseWriter, r *http.Request) {
 						if command.SDP == nil {
 							err = identity.ErrInvalid
 						} else {
-							peerID, sdp, publishErr := g.media.Publish(checkCtx, id, *command.SDP, command.Tracks)
+							peerID, sdp, publishErr := g.media.Publish(checkCtx, id, *command.SDP, command.Tracks, command.Layers)
 							err = publishErr
 							result = map[string]any{"type": "media.answer", "peer_id": peerID, "sdp": sdp}
 						}
@@ -363,10 +367,13 @@ func (g *gateway) handle(w http.ResponseWriter, r *http.Request) {
 						if command.SDP == nil {
 							err = identity.ErrInvalid
 						} else {
-							peerID, sdp, subscribeErr := g.media.Subscribe(checkCtx, id, command.Publisher, *command.SDP)
+							peerID, sdp, subscribeErr := g.media.Subscribe(checkCtx, id, command.Publisher, *command.SDP, command.Qualities)
 							err = subscribeErr
 							result = map[string]any{"type": "media.answer", "peer_id": peerID, "publisher_id": command.Publisher, "sdp": sdp}
 						}
+					case "media.subscription.quality":
+						err = g.media.SubscriptionQuality(id, command.Publisher, command.Purpose, command.Layer)
+						result = map[string]any{"type": "media.subscription.quality.accepted", "publisher_id": command.Publisher, "purpose": command.Purpose, "layer": command.Layer}
 					case "media.ice":
 						if command.ICE == nil {
 							err = identity.ErrInvalid
@@ -620,6 +627,9 @@ func (g *gateway) stats() map[string]any {
 	return map[string]any{"connections": len(g.connections), "queue_overflows": g.overflows.Load(), "queued_bytes": g.queuedBytes.Load(), "listener_connected": g.listenerOnline.Load()}
 }
 func mediaError(err error) string {
+	if errors.Is(err, voice.ErrQuality) {
+		return voice.ErrQuality.Error()
+	}
 	for _, public := range []error{identity.ErrInvalid, identity.ErrUnauthorized, identity.ErrForbidden, identity.ErrNotFound, identity.ErrConflict, voice.ErrCapacity, turnclient.ErrUnavailable} {
 		if errors.Is(err, public) {
 			return public.Error()

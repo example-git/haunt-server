@@ -23,9 +23,11 @@ worker's catalog does not provide thumbnails.
 
 ## Media path
 
-- **WebRTC:** H.264 stays in Electron and passes through the bundled
-  `HauntMediaWorker` Pion publisher to the service's existing media relay. Video
-  is packetized into RTP without decoding or encoding it again. Signaling still
+- **WebRTC:** the selected H.264 stream passes through the bundled
+  `HauntMediaWorker` Pion publisher without re-encoding. Decoded preview frames
+  also produce lower H.264 copies bounded to 720p/30 and 360p/15. Duplicate
+  qualities are omitted. Lower copies use separate bounded queues and cannot
+  block the original stream. Signaling still
   uses the authenticated client gateway, and the publisher honors the admission's
   ICE servers and relay policy. Incoming calls use the existing browser receiver.
 - **WebSocket relay:** the existing encoded transport publishes the worker's
@@ -50,8 +52,13 @@ worker's catalog does not provide thumbnails.
   gain, mute, output selection, and per-source playback volume retain their
   existing paths. Camera audio and screen audio are separate from the microphone.
 
-Camera capture requests 1080p at 60 fps; SwiftCapture clamps to the device's frame
-rate capability. Screen/window capture fits within 1920×1080 at 60 fps. The
+Camera resolution and frame rate choices come from the selected device's native
+format catalog, including high-frame-rate formats. The initial preference is
+1080p/60 when supported, otherwise a supported mode at or below that target.
+Unavailable saved selections produce an error. Screen/window capture defaults
+to 1080p/60 and offers bounds from 360p to 2160p, preserving aspect ratio without
+upscaling. Native screen capture offers 15, 30 and 60 FPS. Active changes restart
+the same selected source and preserve its independent source-audio choice. The
 worker emits periodic keyframes (one second for screen, approximately two for
 camera); its control protocol has no force-keyframe command. New viewers or a
 dropped GOP may therefore wait until the next keyframe.
@@ -89,7 +96,7 @@ the isolated test database and the production Electron handlers with simulated
 Electron device/permission APIs. A test-only FD producer emits FFmpeg H.264 and
 stereo PCM. The real Pion publisher, browser client, and service are exercised
 over WebRTC and WebSocket. It checks remote video/audio, simultaneous sources,
-reconfiguration, and absence of a second video encode. This Linux test does not
+reconfiguration, direct original H.264 publication and lower-layer encoding. This Linux test does not
 verify ScreenCaptureKit/AVFoundation device access, macOS TCC permissions,
 VideoToolbox performance, or macOS code signing at runtime; those require a Mac.
 It also measures actual video-element presentation for simultaneous 720p60 camera

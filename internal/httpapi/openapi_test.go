@@ -139,8 +139,8 @@ func TestGeneratedAPIDocuments(t *testing.T) {
 		valid bool
 	}{
 		{"HttpapiSaveRoleRequest", map[string]any{"name": "Admin", "permissions": 32768}, true},
-		{"HttpapiSaveRoleRequest", map[string]any{"name": "All", "permissions": 65535}, true},
-		{"HttpapiSaveRoleRequest", map[string]any{"name": "Invalid", "permissions": 65536}, false},
+		{"HttpapiSaveRoleRequest", map[string]any{"name": "All", "permissions": 262143}, true},
+		{"HttpapiSaveRoleRequest", map[string]any{"name": "Invalid", "permissions": 262144}, false},
 		{"HttpapiDisableMemberRequest", map[string]any{"disabled": false}, true},
 		{"HttpapiDisableMemberRequest", map[string]any{}, false},
 		{"HttpapiDisableMemberRequest", map[string]any{"disabled": nil}, false},

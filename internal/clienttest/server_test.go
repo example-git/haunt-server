@@ -183,6 +183,9 @@ func TestClients(t *testing.T) {
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 	cmd.WaitDelay = 20 * time.Second
 	cmd.Dir = filepath.Join("..", "..", "client")
+	if directory := os.Getenv("HAUNT_CLIENT_DIR"); directory != "" {
+		cmd.Dir = directory
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

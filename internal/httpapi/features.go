@@ -177,6 +177,27 @@ func (f *Features) routes(a *api, mux routeRegistrar) {
 		}
 		writeJSON(w, 200, participantsResponse{Participants: items})
 	}))
+	mux.HandleFunc("GET /api/v1/voice/{id}/restrictions", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+		items, err := a.identity.VoiceRestrictions(r.Context(), p, r.PathValue("id"), r.URL.Query().Get("after"))
+		if err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		writeJSON(w, 200, items)
+	}))
+	mux.HandleFunc("PATCH /api/v1/voice/{id}/restrictions/{user}", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+		var v VoiceRestrictionRequest
+		if err := decodeLimit(w, r, &v, 4096); err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		item, err := f.Voice.Moderate(r.Context(), p, r.PathValue("id"), r.PathValue("user"), v.Muted, v.Deafened)
+		if err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		writeJSON(w, 200, item)
+	}))
 	mux.HandleFunc("POST /api/v1/conversations/{id}/attachments", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		if !a.limit(w, "upload:"+p.User.ID, 10, time.Minute) {
 			return

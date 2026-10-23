@@ -69,7 +69,7 @@ func publicRoutes(mux routeRegistrar, c config.Config, identities *identity.Serv
 		capabilities := []string{"instance.discovery", "auth.invitation", "auth.password", "auth.password_reset", "sessions.devices", "sessions.persistent", "sessions.restore", "community.permissions", "community.role_sections", "community.channel_icons", "community.moderation", "community.ban_appeals", "community.emojis", "community.animated_art"}
 		if hasFeatures {
 			capabilities = append(capabilities, "server.extensions.v1")
-			capabilities = append(capabilities, "audio.plugins.v1", "menus.declarative.v1", "instance.configuration", "storage.providers", "messages.channels", "messages.voice_channels", "messages.dms", "dms.storage.v1", "dms.mls.v1", "messages.retention", "events.websocket", "events.account_feed", "presence.online", "messages.read_state", "messages.replies", "messages.embeds", "attachments.media", "media.voice", "media.camera", "media.screen", "media.presence", "media.source_audio", "media.joined_at")
+			capabilities = append(capabilities, "audio.plugins.v1", "menus.declarative.v1", "instance.configuration", "storage.providers", "messages.channels", "messages.voice_channels", "messages.dms", "dms.storage.v1", "dms.mls.v1", "messages.retention", "events.websocket", "events.account_feed", "presence.online", "messages.read_state", "messages.replies", "messages.embeds", "attachments.media", "media.voice", "media.camera", "media.screen", "media.presence", "media.source_audio", "media.joined_at", "media.moderation.v1", "media.layers.v1")
 		}
 		capabilities = append(capabilities, "community.administrator")
 		if c.TURN.Enabled || c.HasExternalTURN() {
@@ -140,7 +140,7 @@ func cors(origins []string, next http.Handler) http.Handler {
 				return
 			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		}
 		if r.Method == http.MethodOptions {

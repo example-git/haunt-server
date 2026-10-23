@@ -68,8 +68,10 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | GET | `/api/v1/users/{id}/avatar` | Download avatar PNG or GIF | Bearer | 200 |
 | GET | `/api/v1/voice/{id}` | List current room participants and tracks | Bearer | 200 |
 | GET | `/api/v1/voice/{id}/ice` | Refresh authorized ICE credentials | Bearer | 200 |
+| GET | `/api/v1/voice/{id}/restrictions` | List persistent channel voice restrictions with member identities (Mute members or Deafen members) | Bearer | 200 |
 | GET | `/healthz` | Check process liveness | Public | 200 |
 | GET | `/readyz` | Check database and identity schema readiness | Public | 200 |
+| PATCH | `/api/v1/voice/{id}/restrictions/{user}` | Change a lower-ranked member's channel voice restrictions; each supplied flag requires its corresponding permission | Bearer | 200 |
 | POST | `/api/v1/admin/appeals/{id}/review` | Mark an appeal reviewed without lifting its ban | Bearer | 204 |
 | POST | `/api/v1/admin/audio-plugins` | Install a ZIP of Wasm modules and a declarative manifest, at most 50 MiB packed and unpacked (ManageConfiguration) | Bearer | 201 |
 | POST | `/api/v1/admin/audio-plugins/repository` | Install dist/haunt-plugin.zip from an HTTPS GitHub repository at a full commit ID, requiring its SHA-256 (ManageConfiguration) | Bearer | 201 |
