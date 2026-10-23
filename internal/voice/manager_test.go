@@ -31,6 +31,36 @@ func TestPacketExtensionRemappingDoesNotMutateSource(t *testing.T) {
 		t.Fatal("receiver modified source/shared packet")
 	}
 }
+
+func TestDeafenNormalizesStoredAndBroadcastState(t *testing.T) {
+	r := &room{members: map[string]*participant{}}
+	var received []Snapshot
+	p := &participant{id: "sender", room: r, send: func(value any) bool {
+		received = append(received, value.(map[string]any)["participant"].(Snapshot))
+		return true
+	}}
+	r.members[p.id] = p
+	m := &Manager{participants: map[string]*participant{p.id: p}}
+	for _, requested := range []State{
+		{Deafened: true, CameraOff: true, ScreenOff: true},
+		{Muted: true},
+		{},
+	} {
+		if err := m.SetState(p.id, requested); err != nil {
+			t.Fatal(err)
+		}
+		expected := requested
+		if expected.Deafened {
+			expected.Muted = true
+		}
+		if p.state != expected || received[len(received)-1].State != expected {
+			t.Fatalf("requested %+v: stored %+v, broadcast %+v", requested, p.state, received)
+		}
+		if blockedSource(p.state, State{}, "audio") != expected.Muted {
+			t.Fatal("microphone forwarding differs from visible mute state")
+		}
+	}
+}
 func TestCodecParametersAndPeerCapacity(t *testing.T) {
 	a := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "packetization-mode=1;profile-level-id=42001f"}
 	b := a

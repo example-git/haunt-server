@@ -8,7 +8,7 @@ func audioPurpose(purpose string) bool {
 }
 func blockedSource(publisher, receiver State, purpose string) bool {
 	return (audioPurpose(purpose) && receiver.Deafened) ||
-		(purpose == "audio" && publisher.Muted) ||
+		(purpose == "audio" && (publisher.Muted || publisher.Deafened)) ||
 		((purpose == "camera" || purpose == "camera_audio") && publisher.CameraOff) ||
 		((purpose == "screen" || purpose == "screen_audio") && publisher.ScreenOff)
 }

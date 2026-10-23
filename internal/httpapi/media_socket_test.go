@@ -174,6 +174,17 @@ func TestCloudflaredWebSocketMediaIsolationLifecycleAndDecode(t *testing.T) {
 	if !bytes.Equal(mediaReceive(t, sub)[40:], []byte("resumed")) {
 		t.Fatal("audio did not resume")
 	}
+	// A client cannot claim deafen while keeping its microphone publication live.
+	wsSend(t, pubEvents, map[string]any{"type": "media.state", "state": voice.State{Deafened: true, Muted: false}})
+	wsRead(t, pubEvents, "media.state.accepted")
+	mediaChunk(t, pub, 0, revision, 4, true, []byte("deafened publisher"))
+	noMedia(t, sub)
+	wsSend(t, pubEvents, map[string]any{"type": "media.state", "state": voice.State{}})
+	wsRead(t, pubEvents, "media.state.accepted")
+	mediaChunk(t, pub, 0, revision, 5, true, []byte("publisher resumed"))
+	if !bytes.Equal(mediaReceive(t, sub)[40:], []byte("publisher resumed")) {
+		t.Fatal("publisher did not resume after undeafen")
+	}
 	scratch := t.TempDir()
 	source := filepath.Join(scratch, "source.h264")
 	output := filepath.Join(scratch, "forwarded.h264")

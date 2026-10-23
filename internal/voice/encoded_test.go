@@ -149,6 +149,7 @@ func TestSeparateAudioSourcesRespectMuteDeafenAndSourceState(t *testing.T) {
 	}{
 		{State{}, State{}, [3]bool{true, true, true}},
 		{State{Muted: true}, State{}, [3]bool{false, true, true}},
+		{State{Deafened: true}, State{}, [3]bool{false, true, true}},
 		{State{CameraOff: true}, State{}, [3]bool{true, false, true}},
 		{State{ScreenOff: true}, State{}, [3]bool{true, true, false}},
 		{State{}, State{Deafened: true}, [3]bool{}},
@@ -173,6 +174,13 @@ func TestSeparateAudioSourcesRespectMuteDeafenAndSourceState(t *testing.T) {
 					t.Fatal("queued audio bypassed deafen")
 				}
 				sub.p.state = test.receiver
+				if purpose == 0 {
+					pub.p.state.Deafened = true
+					if sub.Deliverable(frame) {
+						t.Fatal("queued microphone bypassed publisher deafen")
+					}
+					pub.p.state = test.publisher
+				}
 			}
 		}
 	}

@@ -378,6 +378,11 @@ func (m *Manager) Room(ctx context.Context, p identity.Principal, id string) ([]
 	return items, nil
 }
 func (m *Manager) SetState(id string, state State) error {
+	// Normalize before storing or broadcasting, including for older clients that
+	// send an independent mute flag with deafen.
+	if state.Deafened {
+		state.Muted = true
+	}
 	p, err := m.get(id)
 	if err != nil {
 		return err

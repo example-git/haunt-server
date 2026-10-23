@@ -3952,7 +3952,7 @@
         ]
       },
       "media.state": {
-        "description": "Replace all muted, deafened, camera_off and screen_off booleans. muted affects microphone only; deafened blocks all incoming audio. camera_off and screen_off block both video and associated source audio.",
+        "description": "Replace all muted, deafened, camera_off and screen_off booleans. muted affects microphone only; deafened blocks all incoming audio and forces muted=true. camera_off and screen_off block both video and associated source audio. These gates are enforced by the server for WebRTC and encoded WebSocket media, including queued packets.",
         "reply": "media.state.accepted",
         "required": [
           "type",

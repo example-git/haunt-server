@@ -17,6 +17,21 @@ publish into a room and is never persisted as enabled. Stopping the test, leavin
 Devices settings, retrying capture, changing the input, or disconnecting the
 microphone stops playback. Closing settings also releases its capture/contexts.
 
+Both Devices and Server audio plugins previews acquire shared microphone
+playback ownership before starting audio. While any preview owns playback, the
+call is muted and deafened, including calls joined during a preview. Stopping the
+last preview releases that condition; the user's current mute/deafen choices
+remain in effect. An input level meter without playback does not affect a call.
+
+Call state is a read-only snapshot derived from user intent, active capture
+tracks and preview ownership. Deafen always disables the raw and processed
+microphone tracks and all received audio. These local gates change before network
+acknowledgement; state commands are serialized so older replies cannot restore
+previous controls. Camera and screen flags follow their actual sources, including
+capture loss and failed publication. Microphone mute is independent of camera
+and screen source audio. The server also forces mute whenever deafen is set and
+enforces these source gates for both transports, including queued packets.
+
 Browser/Electron echo cancellation is explicitly disabled for calls, microphone
 preview, permission probes, and source-audio capture. Suppression/model/gain
 changes keep it disabled. There is no echo-processing option or additional filter.

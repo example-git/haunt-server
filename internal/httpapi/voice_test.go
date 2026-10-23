@@ -295,6 +295,37 @@ func TestVoiceCameraScreenCodecForwardingAndRooms(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 	awaitMedia(t, aliceReceives)
+	// Even a client sending muted=false cannot publish microphone packets while
+	// claiming deafen. Camera/screen video remain independent sources.
+	wsSend(t, aliceWS, map[string]any{"type": "media.state", "state": voice.State{Deafened: true}})
+	wsRead(t, aliceWS, "media.state.accepted")
+	drain = time.NewTimer(200 * time.Millisecond)
+	for draining := true; draining; {
+		select {
+		case <-bobReceives:
+		case <-drain.C:
+			draining = false
+		}
+	}
+	deadlineMute := time.NewTimer(300 * time.Millisecond)
+	videoReceived := false
+	for checking := true; checking; {
+		select {
+		case packet := <-bobReceives:
+			if packet.purpose == "audio" {
+				t.Fatal("deafened publisher forwarded microphone RTP")
+			}
+			videoReceived = true
+		case <-deadlineMute.C:
+			checking = false
+		}
+	}
+	if !videoReceived {
+		t.Fatal("deafen stopped independent video sources")
+	}
+	wsSend(t, aliceWS, map[string]any{"type": "media.state", "state": voice.State{}})
+	wsRead(t, aliceWS, "media.state.accepted")
+	awaitMedia(t, bobReceives)
 	wsSend(t, aliceWS, map[string]any{"type": "media.leave"})
 	wsRead(t, aliceWS, "media.left")
 	bobWS.CloseNow()
