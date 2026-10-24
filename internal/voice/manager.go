@@ -105,6 +105,7 @@ type subscription struct {
 	pc               *webrtc.PeerConnection
 	tracks           map[string]*webrtc.TrackLocalStaticRTP
 	selections       map[string]*layerSelection
+	audioSequences   map[string]*audioSequence
 	extensions       map[string]map[uint8]uint8
 	packets          chan packet
 	ctx              context.Context
@@ -725,27 +726,34 @@ func (m *Manager) forward(p *participant, src *source, remote *webrtc.TrackRemot
 			continue
 		}
 		p.room.mu.Lock()
-		receivers := []*subscription{}
-		blocked := p.closed || p.publish != src.peer || blockedSource(p.state, State{}, src.purpose)
-		if !blocked {
-			for _, member := range p.room.members {
-				if member.closed || (audioPurpose(src.purpose) && member.state.Deafened) {
-					continue
-				}
-				if sub := member.subscriptions[p.id]; sub != nil && sub.tracks[src.purpose] != nil {
-					receivers = append(receivers, sub)
-				}
-			}
+		if p.closed || p.publish != src.peer {
+			p.room.mu.Unlock()
+			continue
 		}
-		p.room.mu.Unlock()
-		for _, sub := range receivers {
+		for _, member := range p.room.members {
+			sub := member.subscriptions[p.id]
+			if sub == nil || sub.tracks[src.purpose] == nil {
+				continue
+			}
+			sequence := sub.audioSequences[src.purpose]
+			if member.closed || blockedSource(p.state, member.state, src.purpose) {
+				if sequence != nil {
+					sequence.pause()
+				}
+				continue
+			}
+			message := packetMessage(src.purpose, packet, sub.extensions[src.purpose])
+			if sequence != nil {
+				message.epoch = sequence.epoch
+			}
 			select {
-			case sub.packets <- packetMessage(src.purpose, packet, sub.extensions[src.purpose]):
+			case sub.packets <- message:
 			case <-sub.ctx.Done():
 			default:
 				m.drops.Add(1)
 			}
 		}
+		p.room.mu.Unlock()
 	}
 }
 func packetMessage(purpose string, p *rtp.Packet, mapping map[uint8]uint8) packet {
@@ -787,7 +795,7 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 		return "", webrtc.SessionDescription{}, err
 	}
 	subCtx, cancel := context.WithCancel(context.Background())
-	sub := &subscription{id: identity.NewID(), owner: owner, publisher: publisher, pc: pc, tracks: map[string]*webrtc.TrackLocalStaticRTP{}, selections: map[string]*layerSelection{}, extensions: map[string]map[uint8]uint8{}, packets: make(chan packet, 2048), ctx: subCtx, cancel: cancel}
+	sub := &subscription{id: identity.NewID(), owner: owner, publisher: publisher, pc: pc, tracks: map[string]*webrtc.TrackLocalStaticRTP{}, selections: map[string]*layerSelection{}, audioSequences: map[string]*audioSequence{}, extensions: map[string]map[uint8]uint8{}, packets: make(chan packet, 2048), ctx: subCtx, cancel: cancel}
 	success := false
 	defer func() {
 		if !success {
@@ -805,6 +813,9 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 			return "", webrtc.SessionDescription{}, err
 		}
 		sub.tracks[src.purpose] = local
+		if audioPurpose(src.purpose) {
+			sub.audioSequences[src.purpose] = &audioSequence{}
+		}
 		if !m.worker(func() {
 			for {
 				packets, _, err := sender.ReadRTCP()
@@ -922,6 +933,13 @@ func (m *Manager) Subscribe(ctx context.Context, id, publisherID string, offer w
 			case packet := <-sub.packets:
 				owner.room.mu.Lock()
 				blocked := owner.closed || publisher.closed || blockedSource(publisher.state, owner.state, packet.purpose)
+				if sequence := sub.audioSequences[packet.purpose]; sequence != nil {
+					if blocked {
+						sequence.pause()
+					} else {
+						blocked = !sequence.continuity(packet.rtp, packet.epoch)
+					}
+				}
 				if selection := sub.selections[packet.purpose]; !blocked && selection != nil {
 					blocked = !selection.continuity(packet.rtp, packet.epoch)
 				}
