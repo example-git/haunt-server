@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,15 +16,23 @@ import (
 
 func TestMuteGapRecovery(t *testing.T) {
 	for _, gate := range []struct {
-		name, target string
-		state        State
+		name, target, purpose string
+		state                 State
+		gaps                  []int
+		blocked               bool
 	}{
-		{"publisher_mute", "publisher", State{Muted: true}},
-		{"publisher_deafen", "publisher", State{Deafened: true}},
-		{"listener_deafen", "existing", State{Deafened: true}},
+		{"publisher_mute", "publisher", "audio", State{Muted: true}, []int{6000, 21000, 45000}, true},
+		{"publisher_deafen", "publisher", "audio", State{Deafened: true}, []int{6000, 21000, 45000}, true},
+		{"listener_deafen", "existing", "audio", State{Deafened: true}, []int{6000, 21000, 45000}, true},
+		{"listener_deafen_camera_audio", "existing", "camera_audio", State{Deafened: true}, []int{45000}, true},
+		{"listener_deafen_screen_audio", "existing", "screen_audio", State{Deafened: true}, []int{45000}, true},
+		{"publisher_mute_camera_audio", "publisher", "camera_audio", State{Muted: true}, []int{6000}, false},
+		{"publisher_mute_screen_audio", "publisher", "screen_audio", State{Muted: true}, []int{6000}, false},
+		{"publisher_deafen_camera_audio", "publisher", "camera_audio", State{Deafened: true}, []int{6000}, false},
+		{"publisher_deafen_screen_audio", "publisher", "screen_audio", State{Deafened: true}, []int{6000}, false},
 	} {
 		t.Run(gate.name, func(t *testing.T) {
-			for _, gap := range []int{6000, 21000, 45000} {
+			for _, gap := range gate.gaps {
 				t.Run(fmt.Sprintf("%d_packets", gap), func(t *testing.T) {
 					m, err := New(config.Config{}, &identity.Service{})
 					if err != nil {
@@ -95,7 +104,7 @@ func TestMuteGapRecovery(t *testing.T) {
 							}
 						}
 					}()
-					_, answer, err := m.Publish(ctx, "publisher", offer(publisher), map[string]string{"audio": track.ID()})
+					_, answer, err := m.Publish(ctx, "publisher", offer(publisher), map[string]string{gate.purpose: track.ID()})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -114,7 +123,7 @@ func TestMuteGapRecovery(t *testing.T) {
 					for {
 						write()
 						r.mu.Lock()
-						ready := r.members["publisher"].sources["audio"] != nil
+						ready := r.members["publisher"].sources[gate.purpose] != nil
 						r.mu.Unlock()
 						if ready {
 							break
@@ -125,23 +134,19 @@ func TestMuteGapRecovery(t *testing.T) {
 							t.Fatal(ctx.Err())
 						}
 					}
-					subscribe := func(id string) <-chan uint16 {
+					subscribe := func(id string) *atomic.Uint64 {
 						pc := peer()
-						packets := make(chan uint16, 4096)
+						packets := &atomic.Uint64{}
 						pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 							workers.Add(1)
 							go func() {
 								defer workers.Done()
 								for {
-									packet, _, err := remote.ReadRTP()
+									_, _, err := remote.ReadRTP()
 									if err != nil {
 										return
 									}
-									select {
-									case packets <- packet.SequenceNumber:
-									case <-ctx.Done():
-										return
-									}
+									packets.Add(1)
 								}
 							}()
 						})
@@ -162,16 +167,14 @@ func TestMuteGapRecovery(t *testing.T) {
 						write()
 						time.Sleep(5 * time.Millisecond)
 					}
-					if len(existing) == 0 {
-						t.Fatal("baseline microphone packets did not reach listener")
+					if existing.Load() == 0 {
+						t.Fatal("baseline audio packets did not reach listener")
 					}
 					if err := m.SetState(gate.target, gate.state); err != nil {
 						t.Fatal(err)
 					}
 					time.Sleep(100 * time.Millisecond)
-					for len(existing) > 0 {
-						<-existing
-					}
+					beforePause := existing.Load()
 					for n := 0; n < gap; n++ {
 						write()
 						if n%100 == 99 {
@@ -179,9 +182,14 @@ func TestMuteGapRecovery(t *testing.T) {
 						}
 					}
 					time.Sleep(200 * time.Millisecond)
-					if len(existing) != 0 {
-						t.Fatal("microphone packets leaked during mute")
+					duringPause := existing.Load() - beforePause
+					if gate.blocked && duringPause != 0 {
+						t.Fatal("audio packets leaked during an enforced pause")
 					}
+					if !gate.blocked && duringPause == 0 {
+						t.Fatal("publisher mute/deafen stopped independent share audio")
+					}
+					beforeResume := existing.Load()
 					if err := m.SetState(gate.target, State{}); err != nil {
 						t.Fatal(err)
 					}
@@ -189,22 +197,21 @@ func TestMuteGapRecovery(t *testing.T) {
 						write()
 						time.Sleep(5 * time.Millisecond)
 					}
-					beforeFresh := len(existing)
+					beforeFresh := existing.Load() - beforeResume
 					fresh := subscribe("fresh")
 					for n := 0; n < 100; n++ {
 						write()
 						time.Sleep(5 * time.Millisecond)
 					}
-					t.Logf("muted input packets=%d; existing listener after unmute=%d, after fresh join=%d; fresh listener=%d; publisher=%s", gap, beforeFresh, len(existing), len(fresh), publisher.ConnectionState())
-					if len(fresh) == 0 {
-						t.Fatal("fresh listener received no resumed microphone packets")
+					t.Logf("input packets during pause=%d; received during pause=%d; existing listener after unmute=%d, after fresh join=%d; fresh listener=%d; publisher=%s", gap, duringPause, beforeFresh, existing.Load()-beforeResume, fresh.Load(), publisher.ConnectionState())
+					if fresh.Load() == 0 {
+						t.Fatal("fresh listener received no resumed audio packets")
 					}
 					if beforeFresh == 0 {
 						t.Fatal("existing listener did not recover after unmute")
 					}
 				})
 			}
-
 		})
 	}
 }
