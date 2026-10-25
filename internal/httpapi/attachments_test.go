@@ -52,6 +52,16 @@ func TestAttachmentMP4ContainerDetection(t *testing.T) {
 	if http.DetectContentType(iso) != "application/octet-stream" {
 		t.Fatal("fixture must exercise MP4 identification beyond the HTTP MIME sniffer")
 	}
+	fragmentedPath := filepath.Join(dir, "fragmented.mp4")
+	command("-v", "error", "-i", video, "-c", "copy", "-movflags", "frag_keyframe+empty_moov+default_base_moof", fragmentedPath)
+	fragmented, err := os.ReadFile(fragmentedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	padded := append([]byte{0, 0, 0, 8, 'f', 'r', 'e', 'e'}, fragmented...)
+	if http.DetectContentType(padded) != "application/octet-stream" {
+		t.Fatal("expected an unrecognized MP4 with a leading padding box")
+	}
 	audioPath := filepath.Join(dir, "audio.mp4")
 	command("-v", "error", "-i", video, "-map", "0:a:0", "-c:a", "copy", audioPath)
 	audio, err := os.ReadFile(audioPath)
@@ -74,6 +84,8 @@ func TestAttachmentMP4ContainerDetection(t *testing.T) {
 	}{
 		{"mp4-brands", payload, http.StatusCreated},
 		{"iso-brands", iso, http.StatusCreated},
+		{"fragmented", fragmented, http.StatusCreated},
+		{"leading-padding", padded, http.StatusCreated},
 		{"header-only", iso[:24], http.StatusUnsupportedMediaType},
 		{"binary-data", make([]byte, 1024), http.StatusUnsupportedMediaType},
 		{"audio-only", audio, http.StatusUnsupportedMediaType},
