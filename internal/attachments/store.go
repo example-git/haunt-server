@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -277,6 +278,7 @@ type probeOutput struct {
 		FrameRate string `json:"avg_frame_rate"`
 	} `json:"streams"`
 	Format struct {
+		Name     string `json:"format_name"`
 		Duration string `json:"duration"`
 	} `json:"format"`
 }
@@ -303,7 +305,7 @@ func (s *Store) validate(ctx context.Context, path string, size int64, policy co
 		if size > policy.ImageMaxBytes {
 			return "", ErrMedia
 		}
-	case "video/mp4", "video/webm":
+	case "video/mp4", "video/webm", "application/octet-stream":
 		if size > policy.VideoMaxBytes {
 			return "", ErrMedia
 		}
@@ -312,7 +314,7 @@ func (s *Store) validate(ctx context.Context, path string, size int64, policy co
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probeCtx, s.probe, "-v", "error", "-protocol_whitelist", "file", "-probesize", "10485760", "-analyzeduration", "3000000", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=duration", "-of", "json", path)
+	cmd := exec.CommandContext(probeCtx, s.probe, "-v", "error", "-protocol_whitelist", "file", "-probesize", "10485760", "-analyzeduration", "3000000", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", path)
 	var output boundedBuffer
 	cmd.Stdout = &output
 	cmd.Stderr = io.Discard
@@ -322,6 +324,12 @@ func (s *Store) validate(ctx context.Context, path string, size int64, policy co
 	var metadata probeOutput
 	if json.Unmarshal(output.Bytes(), &metadata) != nil || len(metadata.Streams) == 0 || len(metadata.Streams) > 3 {
 		return "", ErrMedia
+	}
+	if kind == "application/octet-stream" {
+		if !slices.Contains(strings.Split(metadata.Format.Name, ","), "mp4") {
+			return "", ErrMedia
+		}
+		kind = "video/mp4"
 	}
 	videos := 0
 	for _, stream := range metadata.Streams {

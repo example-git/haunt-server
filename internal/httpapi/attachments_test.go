@@ -58,6 +58,15 @@ func TestAttachmentMP4ContainerDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	transportPath := filepath.Join(dir, "video.ts")
+	command("-v", "error", "-i", video, "-c", "copy", "-f", "mpegts", transportPath)
+	transport, err := os.ReadFile(transportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if http.DetectContentType(transport) != "application/octet-stream" {
+		t.Fatal("expected an unrecognized video container")
+	}
 	for _, tc := range []struct {
 		name string
 		data []byte
@@ -68,6 +77,7 @@ func TestAttachmentMP4ContainerDetection(t *testing.T) {
 		{"header-only", iso[:24], http.StatusUnsupportedMediaType},
 		{"binary-data", make([]byte, 1024), http.StatusUnsupportedMediaType},
 		{"audio-only", audio, http.StatusUnsupportedMediaType},
+		{"transport-stream", transport, http.StatusUnsupportedMediaType},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := featureFixture(t, 256_000_000)
