@@ -1760,6 +1760,17 @@
             },
             "type": "object"
           },
+          "level": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "participant_id": {
+            "type": "string"
+          },
           "peer_id": {
             "type": "string"
           },

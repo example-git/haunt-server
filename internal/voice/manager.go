@@ -428,6 +428,33 @@ func (m *Manager) SetState(id string, state State) error {
 	return nil
 }
 
+func (m *Manager) ReportLevel(connection, participantID string, level *int) error {
+	if level == nil || *level < 0 || *level > 100 {
+		return identity.ErrInvalid
+	}
+	p, err := m.get(connection)
+	if err != nil {
+		return err
+	}
+	p.room.mu.Lock()
+	defer p.room.mu.Unlock()
+	if p.closed || p.room.members[p.id] != p {
+		return identity.ErrNotFound
+	}
+	if p.id != participantID {
+		return identity.ErrForbidden
+	}
+	if p.state.Muted || p.state.Deafened {
+		return nil
+	}
+	for _, receiver := range p.room.members {
+		if receiver != p && !receiver.closed {
+			receiver.send(map[string]any{"type": "media.level", "participant_id": p.id, "level": *level})
+		}
+	}
+	return nil
+}
+
 func (m *Manager) newPeer(contexts ...context.Context) (*webrtc.PeerConnection, error) {
 	if m.transport == "websocket" {
 		return nil, identity.ErrInvalid
