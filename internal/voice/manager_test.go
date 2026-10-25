@@ -62,6 +62,71 @@ func TestDeafenNormalizesStoredAndBroadcastState(t *testing.T) {
 	}
 }
 
+func TestMicrophoneLevelsRespectSenderStateAndRoomMembership(t *testing.T) {
+	r := &room{members: map[string]*participant{}}
+	var levels []int
+	receiver := &participant{id: "receiver", room: r, state: State{Muted: true, Deafened: true}, send: func(value any) bool {
+		event := value.(map[string]any)
+		if event["type"] == "media.level" {
+			if event["participant_id"] != "sender" {
+				t.Fatal("incorrect sender", event)
+			}
+			levels = append(levels, event["level"].(int))
+		}
+		return true
+	}}
+	sender := &participant{id: "sender", room: r, send: func(any) bool { return true }}
+	r.members[sender.id], r.members[receiver.id] = sender, receiver
+	other := &participant{id: "other", room: &room{}, send: func(any) bool {
+		t.Fatal("level escaped its voice room")
+		return false
+	}}
+	m := &Manager{participants: map[string]*participant{"socket": sender, "other-socket": other}}
+	level := 67
+	for _, state := range []State{{}, {Muted: true}, {Deafened: true}, {}} {
+		if err := m.SetState("socket", state); err != nil {
+			t.Fatal(err)
+		}
+		before := len(levels)
+		if err := m.ReportLevel("socket", sender.id, &level); err != nil {
+			t.Fatal(err)
+		}
+		want := before
+		if !state.Muted && !state.Deafened {
+			want++
+		}
+		if len(levels) != want {
+			t.Fatal("level relay ignored sender state", state, levels)
+		}
+	}
+	sender.restriction = identity.VoiceRestriction{Muted: true}
+	if err := m.SetState("socket", State{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ReportLevel("socket", sender.id, &level); err != nil || len(levels) != 2 {
+		t.Fatal("moderator mute did not block level", err, levels)
+	}
+	below, above := -1, 101
+	for _, invalid := range []*int{nil, &below, &above} {
+		if err := m.ReportLevel("socket", sender.id, invalid); err == nil {
+			t.Fatal("accepted invalid level", invalid)
+		}
+	}
+	if err := m.ReportLevel("socket", receiver.id, &level); err == nil {
+		t.Fatal("accepted another participant's identity")
+	}
+	if err := m.ReportLevel("missing-socket", sender.id, &level); err == nil {
+		t.Fatal("accepted a nonparticipant")
+	}
+	sender.closed = true
+	if err := m.ReportLevel("socket", sender.id, &level); err == nil {
+		t.Fatal("accepted a departed participant")
+	}
+	if len(levels) != 2 || levels[0] != level || levels[1] != level {
+		t.Fatal("levels changed", levels)
+	}
+}
+
 func TestParticipantBroadcastUsesCurrentRestrictionsAndMembership(t *testing.T) {
 	r := &room{members: map[string]*participant{}}
 	var received []Snapshot

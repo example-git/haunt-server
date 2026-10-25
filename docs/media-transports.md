@@ -12,6 +12,19 @@ Transport is an installation setting. Clients read `transport` from an authorize
 
 STUN alone does not count as an external relay. The optional built-in relay does not make a host behind an HTTP tunnel publicly reachable, so it does not suppress the WebSocket fallback. Configured but unavailable external TURN produces an explicit media error; it does not silently change the protocol during a call.
 
+## Microphone levels
+
+Instances advertising `media.levels.v1` relay `media.level` reports on the event
+socket for both transports. Levels are measured by the sender after filtering
+and gain on a fixed -60 to 0 dBFS scale, represented as integers from 0 to 100.
+The command includes the current `participant_id` and `level`; its reply is
+`media.level.accepted`. Other members of the same room receive the participant ID
+and level, including deafened listeners. Muted and deafened senders do not report.
+Send changes at most ten times per second, with an unchanged reading every 500 ms;
+the server permits at most 20 reports per second separately from control commands.
+Receivers clear reports on mute, leave or reconnect and mark missing readings
+unavailable after two seconds. Reports are ephemeral and do not confirm audio delivery.
+
 ## External TURN
 
 Set `HAUNT_MEDIA_TURN_HOST` to an IP or DNS hostname without a scheme/port, plus `HAUNT_MEDIA_TURN_USERNAME` and `HAUNT_MEDIA_TURN_PASSWORD`. UDP and TCP use `HAUNT_MEDIA_TURN_PORT` (3478 by default). An optional `HAUNT_MEDIA_TURN_TLS_PORT` adds TURN over TLS; use a hostname matching its certificate. The operator supplies the TURN service and firewall rules. The shortcut provides credentials to authorized callers, so use a dedicated restricted relay account. `HAUNT_ICE_SERVERS` supports advanced ICE JSON configuration.

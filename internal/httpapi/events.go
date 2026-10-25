@@ -72,6 +72,8 @@ type eventCommand struct {
 	After         *int64                        `json:"after_event,omitempty"`
 	Admission     string                        `json:"admission_id,omitempty"`
 	Publisher     string                        `json:"publisher_id,omitempty"`
+	Participant   string                        `json:"participant_id,omitempty"`
+	Level         *int                          `json:"level,omitempty" minimum:"0" maximum:"100"`
 	Peer          string                        `json:"peer_id,omitempty"`
 	SDP           *webrtc.SessionDescription    `json:"sdp,omitempty"`
 	Tracks        map[string]string             `json:"tracks,omitempty"`
@@ -273,6 +275,19 @@ func (g *gateway) handle(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case command := <-commands:
+			if command.Type == "media.level" && g.media != nil {
+				if !g.limits.allow("ws-level:"+id, 20, time.Second) {
+					return
+				}
+				if err := g.media.ReportLevel(id, command.Participant, command.Level); err != nil {
+					if !send(map[string]string{"type": "error", "error": mediaError(err)}) {
+						return
+					}
+				} else if !send(map[string]string{"type": "media.level.accepted"}) {
+					return
+				}
+				continue
+			}
 			if !g.limits.allow("ws:"+id, 120, time.Minute) {
 				return
 			}
