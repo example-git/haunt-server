@@ -21,8 +21,73 @@ func TestPublicClientUpdateURLs(t *testing.T) {
 			t.Fatal(got)
 		}
 	}
+	for _, manifest := range []string{
+		"https://github.com/example-git/haunt/releases/latest/download/haunt-updates.json",
+		"https://github.com/example-git/haunt/releases/download/v0.2.0/haunt-updates.json",
+		"https://github.com/community/release-hub/releases/download/v0.2.0/haunt-updates.json",
+	} {
+		if !githubUpdateFeed(manifest) {
+			t.Fatal("Hub manifest was not recognized", manifest)
+		}
+		if got := publicUpdateURL(manifest, "0.2.0", "Haunt.AppImage"); got != manifest[:strings.Index(manifest, "/releases/")]+"/releases/download/v0.2.0/Haunt.AppImage" {
+			t.Fatal(got)
+		}
+	}
 	if got := publicUpdateURL("https://downloads.example.test/updates/haunt-updates.json", "0.2.0", "Haunt.AppImage"); got != "https://downloads.example.test/updates/client-v0.2.0/Haunt.AppImage" {
 		t.Fatal(got)
+	}
+}
+
+type updateFeedTransport func(*http.Request) (*http.Response, error)
+
+func (f updateFeedTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestPublicHubClientUpdateRoutes(t *testing.T) {
+	envelope := updateFixtureFiles(t, t.TempDir())
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := "https://github.com/example-git/haunt/releases/download/v0.2.0/haunt-updates.json"
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	http.DefaultTransport = updateFeedTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != manifest || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+			t.Fatal("Unexpected upstream request", r.URL)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(data)))}, nil
+	})
+	mux := http.NewServeMux()
+	configuration := config.Config{PublicURL: "https://community.example.test", ClientUpdateInstallers: true, ClientUpdateManifestURL: manifest}
+	source := clientUpdateSource(configuration)
+	if source.Authenticated || !source.Installers || source.ManifestURL != configuration.PublicURL+"/api/v1/client-updates/haunt-updates.json" {
+		t.Fatal("Incorrect advertised hub feed", source)
+	}
+	(&api{}).clientUpdateRoutes(mux, configuration)
+	for _, path := range []string{"haunt-updates.json", "installers", "0.2.0/linux-x64.rpm", "client-v0.2.0/linux-x64.rpm"} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/client-updates/"+path, nil))
+		switch path {
+		case "haunt-updates.json":
+			var actual ClientUpdateEnvelope
+			if err := json.Unmarshal(response.Body.Bytes(), &actual); err != nil || response.Code != 200 || actual != envelope {
+				t.Fatal(response.Code, actual, err)
+			}
+		case "installers":
+			var actual ClientInstallers
+			if err := json.Unmarshal(response.Body.Bytes(), &actual); err != nil || response.Code != 200 || actual.Manifest != envelope || len(actual.Available) != 4 {
+				t.Fatal(response.Code, actual, err)
+			}
+			for target, link := range actual.Downloads {
+				if link != "https://github.com/example-git/haunt/releases/download/v0.2.0/"+target+".exe" {
+					t.Fatal(link)
+				}
+			}
+		default:
+			if response.Code != http.StatusFound || response.Header().Get("Location") != "https://github.com/example-git/haunt/releases/download/v0.2.0/linux-x64.rpm" {
+				t.Fatal(response.Code, response.Header())
+			}
+		}
 	}
 }
 
