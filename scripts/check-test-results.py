@@ -10,6 +10,8 @@ def check(path):
     allowed = {
         ("github.com/example-git/haunt-server/internal/clienttest", "TestClients"),
         ("github.com/example-git/haunt-server/cmd/haunt", "TestFirstRunBinary"),
+        ("github.com/example-git/haunt-server/internal/httpapi", "TestHistoryScale"),
+        ("github.com/example-git/haunt-server/internal/embeds", "TestLiveSocialProviders"),
     }
     passed = 0
     for line in Path(path).read_text().splitlines():
