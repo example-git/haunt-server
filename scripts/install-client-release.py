@@ -58,9 +58,11 @@ def install(directory, public_key, stream):
             raise ValueError('Unexpected release identity')
         keep = {'haunt-updates.json'}
         for target in TARGETS:
-            for kind in ('asar', 'installer'):
+            for kind in ('asar', 'installer') + (('rpm',) if 'rpm' in manifest['targets'][target] else ()):
                 entry = manifest['targets'][target][kind]
                 name = entry['file']
+                if kind == 'rpm' and (not target.startswith('linux-') or not name.endswith('.rpm')):
+                    raise ValueError('Invalid RPM target')
                 if not NAME.fullmatch(name) or not re.fullmatch('[a-f0-9]{64}', entry['sha256']) or not isinstance(entry['size'], int) or not 0 < entry['size'] <= 1024**3:
                     raise ValueError('Invalid signed artifact')
                 filename = stage / name

@@ -24,12 +24,16 @@ class ReleaseImport(unittest.TestCase):
         targets = {}
         for target in module.TARGETS:
             targets[target] = {}
-            for kind in ('asar','installer'):
-                name = target + ('.asar' if kind == 'asar' else '.exe')
+            for kind in ('asar','installer') + (('rpm',) if target.startswith('linux-') else ()):
+                name = target + {'asar':'.asar','installer':'.exe','rpm':'.rpm'}[kind]
                 data = ('fixture-'+name).encode()
                 self.files[name] = data
                 targets[target][kind] = {'file':name,'size':len(data),'sha256':hashlib.sha256(data).hexdigest()}
-        payload = json.dumps({'schema':1,'repository':'example-git/haunt-client','version':'0.2.0','targets':targets}).encode()
+        self.manifest = {'schema':1,'repository':'example-git/haunt-client','version':'0.2.0','targets':targets}
+        self.sign_manifest()
+
+    def sign_manifest(self):
+        payload = json.dumps(self.manifest).encode()
         (self.root/'payload').write_bytes(payload)
         subprocess.run(['openssl','pkeyutl','-sign','-inkey',str(self.root/'key'),'-rawin','-in',str(self.root/'payload'),'-out',str(self.root/'signature')],check=True,capture_output=True)
         self.files['haunt-updates.json'] = json.dumps({'schema':1,'payload':base64.b64encode(payload).decode(),'signature':base64.b64encode((self.root/'signature').read_bytes()).decode()}).encode()
@@ -49,7 +53,25 @@ class ReleaseImport(unittest.TestCase):
         module.install(target,self.root/'public',self.archive())
         self.assertEqual((target/'haunt-updates.json').read_bytes(),self.files['haunt-updates.json'])
         self.assertTrue((target/'client-v0.2.0/win32-x64.asar').is_file())
+        for arch in ('x64','arm64'):
+            name='linux-'+arch+'.rpm'
+            self.assertEqual((target/'client-v0.2.0'/name).read_bytes(),self.files[name])
         with self.assertRaises(ValueError): module.install(target,self.root/'public',self.archive())
+
+    def test_legacy_manifest_without_rpm(self):
+        for target in ('linux-x64','linux-arm64'):
+            del self.manifest['targets'][target]['rpm']
+            del self.files[target+'.rpm']
+        self.sign_manifest()
+        target=self.root/'updates'
+        module.install(target,self.root/'public',self.archive())
+        self.assertEqual((target/'haunt-updates.json').read_bytes(),self.files['haunt-updates.json'])
+
+    def test_changed_rpm_cannot_replace_manifest(self):
+        self.files['linux-arm64.rpm']=b'corrupt'
+        target=self.root/'updates'
+        with self.assertRaises(ValueError): module.install(target,self.root/'public',self.archive())
+        self.assertFalse((target/'haunt-updates.json').exists())
 
     def test_changed_file_cannot_replace_manifest(self):
         self.files['win32-x64.asar']=b'corrupt'
