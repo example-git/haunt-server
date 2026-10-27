@@ -13,11 +13,11 @@ import (
 	"github.com/example-git/haunt-server/internal/config"
 	"github.com/example-git/haunt-server/internal/embeds"
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/platform/postgres"
 	"github.com/example-git/haunt-server/internal/relay"
 	"github.com/example-git/haunt-server/internal/serverextension"
 	"github.com/example-git/haunt-server/internal/turnclient"
 	"github.com/example-git/haunt-server/internal/voice"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"mime"
 	"time"
 )
@@ -37,7 +37,7 @@ type Features struct {
 	CloudTURN        *turnclient.Client
 }
 
-func NewFeatures(ctx context.Context, c config.Config, pool *pgxpool.Pool, ids *identity.Service, logger *slog.Logger) (*Features, error) {
+func NewFeatures(ctx context.Context, c config.Config, pool postgres.Pool, ids *identity.Service, logger *slog.Logger) (*Features, error) {
 	store, err := chat.New(pool, ids, c)
 	if err != nil {
 		return nil, err
@@ -87,7 +87,7 @@ func NewFeatures(ctx context.Context, c config.Config, pool *pgxpool.Pool, ids *
 	}
 	gateway := newGateway(store, ids, logger)
 	gateway.media = sfu
-	return &Features{Extensions: extensions, PluginRepository: audioplugin.NewRepositoryInstaller(c.AudioPluginGitHubToken), AudioPlugins: plugins, Defaults: c.RuntimeDefaults(), Previews: embeds.New(), Chat: store, Gateway: gateway, Attachments: media, Voice: sfu, Relay: turn, Media: newMediaGateway(sfu, ids, c.MediaMaxPeers), CloudTURN: cloudTURN}, nil
+	return &Features{Extensions: extensions, PluginRepository: audioplugin.NewRepositoryInstaller(c.AudioPluginGitHubToken), AudioPlugins: plugins, Defaults: c.RuntimeDefaults(), Previews: embeds.NewPersistent(pool), Chat: store, Gateway: gateway, Attachments: media, Voice: sfu, Relay: turn, Media: newMediaGateway(sfu, ids, c.MediaMaxPeers), CloudTURN: cloudTURN}, nil
 }
 func (f *Features) Maintain(ctx context.Context) error {
 	return errors.Join(f.Chat.Maintain(ctx), f.Attachments.Maintain(ctx))
@@ -306,12 +306,43 @@ func (f *Features) routes(a *api, mux routeRegistrar) {
 				return
 			}
 		}
-		history, err := f.Chat.History(r.Context(), p, r.PathValue("id"), after, limit)
+		options := chat.HistoryOptions{After: after, Limit: limit}
+		if value := r.URL.Query().Get("before"); value != "" {
+			options.Before, err = strconv.ParseInt(value, 10, 64)
+			if err != nil || options.Before < 1 {
+				a.fail(w, r, identity.ErrInvalid)
+				return
+			}
+		}
+		if value := r.URL.Query().Get("latest"); value != "" {
+			options.Latest, err = strconv.ParseBool(value)
+			if err != nil {
+				a.fail(w, r, identity.ErrInvalid)
+				return
+			}
+		}
+		if value := r.URL.Query().Get("changes_after"); value != "" {
+			cursor, parseErr := strconv.ParseInt(value, 10, 64)
+			if parseErr != nil {
+				a.fail(w, r, identity.ErrInvalid)
+				return
+			}
+			options.ChangesAfter = &cursor
+		}
+		history, err := f.Chat.HistoryPage(r.Context(), p, r.PathValue("id"), options)
 		if err != nil {
 			a.fail(w, r, err)
 			return
 		}
 		writeJSON(w, 200, history)
+	}))
+	mux.HandleFunc("GET /api/v1/conversations/{id}/messages/{message}", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+		message, err := f.Chat.Message(r.Context(), p, r.PathValue("id"), r.PathValue("message"))
+		if err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		writeJSON(w, 200, message)
 	}))
 	mux.HandleFunc("POST /api/v1/conversations/{id}/messages", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		var body CreateMessageRequest

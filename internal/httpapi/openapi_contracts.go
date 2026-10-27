@@ -66,6 +66,7 @@ type unavailableResponse struct {
 	Dependency string `json:"dependency"`
 }
 type statsResponse struct {
+	Traffic        map[string]any `json:"traffic"`
 	Storage        map[string]any `json:"storage"`
 	Policy         config.Policy  `json:"policy"`
 	Pool           map[string]any `json:"pool"`
@@ -99,8 +100,11 @@ type afterQuery struct {
 	After string `query:"after" description:"Exclusive UUID cursor; up to 100 results."`
 }
 type historyQuery struct {
-	After int64 `query:"after" minimum:"0" default:"0" description:"Exclusive conversation sequence; zero starts at the oldest retained message. Pages are ascending by sequence."`
-	Limit int   `query:"limit" minimum:"1" maximum:"100" default:"100"`
+	After        int64 `query:"after" minimum:"0" default:"0" description:"Exclusive conversation sequence; zero starts at the oldest retained message. Pages are ascending by sequence."`
+	Limit        int   `query:"limit" minimum:"1" maximum:"100" default:"100"`
+	Before       int64 `query:"before" minimum:"1" description:"Return the nearest older page before this exclusive sequence, in ascending order."`
+	Latest       bool  `query:"latest" description:"Return the newest page in ascending order. Cannot be combined with other history cursors."`
+	ChangesAfter int64 `query:"changes_after" minimum:"0" description:"Read retained edits and deletions after this durable event sequence. New messages use sequence paging. Continue using next_change while has_more is true."`
 }
 type uploadQuery struct {
 	Encrypted string `query:"encrypted" description:"Set to 1 for an encrypted DM image; required for DM uploads."`
@@ -255,11 +259,14 @@ func endpointContracts() map[string]endpointContract {
 	add("GET /api/v1/conversations", "listConversations", "List accessible text/voice channel chats and DMs", nil, conversationsResponse{}, 200)
 	add("POST /api/v1/dms", "createDM", "Get or create a DM for a participant set", CreateDMRequest{}, chat.Conversation{}, 201)
 	add("GET /api/v1/conversations/{id}/messages", "getHistory", "Read message history and recovery cursors", nil, chat.History{}, 200)
+	add("GET /api/v1/conversations/{id}/messages/{message}", "getMessage", "Read a retained message by identity within an authorized conversation", nil, chat.Message{}, 200)
 	add("POST /api/v1/conversations/{id}/messages", "createMessage", "Commit a message with retry deduplication", CreateMessageRequest{}, chat.Message{}, 201)
 	add("PUT /api/v1/conversations/{id}/messages/{message}", "editMessage", "Edit an authored message", EditMessageRequest{}, chat.Message{}, 200)
 	add("DELETE /api/v1/conversations/{id}/messages/{message}", "deleteMessage", "Tombstone an authored message", nil, chat.Message{}, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds", "getMessageEmbeds", "Fetch up to three cached public link previews for a visible retained message", nil, embedsResponse{}, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/image", "getEmbedImage", "Download a bounded preview image after rechecking message access", nil, nil, 200)
+	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/video-ticket", "getEmbedVideoTicket", "Create a media-only playback ticket valid for 30 minutes; message and session access are rechecked on every range", nil, embedTicketResponse{}, 200)
+	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/video", "getEmbedVideo", "Stream a bounded video byte range using a media-only ticket", nil, nil, 206)
 	add("GET /api/v1/attachments/{id}/metadata", "getAttachmentMetadata", "Get filename, size and detected content type for an authorized attachment", nil, attachments.Attachment{}, 200)
 	add("POST /api/v1/conversations/{id}/attachments", "uploadAttachment", "Upload raw image or video bytes", nil, attachments.Attachment{}, 201)
 	add("GET /api/v1/attachments/{id}", "downloadAttachment", "Download an authorized attachment; supports Range and HEAD", nil, nil, 200)
@@ -306,10 +313,21 @@ func endpointContracts() map[string]endpointContract {
 		contract.binaryOutput = true
 		c[pattern] = contract
 	}
+	messageEmbeds := c["GET /api/v1/conversations/{id}/messages/{message}/embeds"]
+	messageEmbeds.query = embedsQuery{}
+	c["GET /api/v1/conversations/{id}/messages/{message}/embeds"] = messageEmbeds
 	embedImage := c["GET /api/v1/conversations/{id}/messages/{message}/embeds/image"]
 	embedImage.query = embedImageQuery{}
 	embedImage.binaryOutput = true
 	c["GET /api/v1/conversations/{id}/messages/{message}/embeds/image"] = embedImage
+	ticket := c["GET /api/v1/conversations/{id}/messages/{message}/embeds/video-ticket"]
+	ticket.query = embedVideoQuery{}
+	c["GET /api/v1/conversations/{id}/messages/{message}/embeds/video-ticket"] = ticket
+	video := c["GET /api/v1/conversations/{id}/messages/{message}/embeds/video"]
+	video.query = embedTicketQuery{}
+	video.public = true
+	video.binaryOutput = true
+	c["GET /api/v1/conversations/{id}/messages/{message}/embeds/video"] = video
 	v := c["GET /api/v1/conversations/{id}/messages"]
 	v.query = historyQuery{}
 	c["GET /api/v1/conversations/{id}/messages"] = v

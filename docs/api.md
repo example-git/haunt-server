@@ -126,6 +126,10 @@ Owner recovery is host-only: `haunt -owner-password-file /protected/file`. The o
 | `GET /api/v1/conversations?after={id}` | Visible text/voice channel chats and your DMs, UUID order, at most 100 per page |
 | `POST /api/v1/dms` | `{ "members":["other user UUID"] }`; includes the caller, 2–16 unique members; same set returns the same conversation |
 | `GET /api/v1/conversations/{id}/messages?after=0&limit=100` | Ascending sequence page, default/max 100 |
+| `GET /api/v1/conversations/{id}/messages?latest=true&limit=100` | Latest bounded page, returned in ascending sequence order |
+| `GET /api/v1/conversations/{id}/messages?before={seq}&limit=100` | Page immediately before a sequence, returned in ascending order |
+| `GET /api/v1/conversations/{id}/messages?changes_after={cursor}&limit=100` | Retained edits and deletion tombstones after a durable change cursor; new messages use sequence paging |
+| `GET /api/v1/conversations/{id}/messages/{message}` | One authorized retained, undeleted message, including an older reply target |
 | `POST /api/v1/conversations/{id}/messages` | `{ "request_id":"new UUID", "body":"text", "attachment_ids":[], "reply_to_id":"optional message UUID" }`; 201 |
 | `PUT /api/v1/conversations/{id}/messages/{message}` | Author: `{ "body":"replacement text" }`; 200 |
 | `DELETE /api/v1/conversations/{id}/messages/{message}` | Author: stores a tombstone; 200 |
@@ -138,7 +142,9 @@ Bodies require nonblank text or at least one attachment, valid UTF-8 without NUL
 
 Retries use a caller-generated `request_id`, unique per author across conversations. Identical retries return the currently retained message; changed content/conversation/reply target/attachment lists return 409. **Deduplication lasts only while the message row is retained.** After pruning, old request IDs are no longer remembered. Clients must not automatically resubmit a stale offline outbox beyond retained history.
 
-History returns `messages`, `last_seq`, `pruned_through`, `event_cursor`, and `gap`. `gap` means the requested sequence precedes the retention boundary or exceeds the current sequence. Expired messages are hidden immediately, before maintenance. Page with the last returned message sequence. A multi-page fetch is not one long snapshot: reconcile edits/events using the earliest page's event cursor. A `history.pruned` event reports server retention and does **not** request deletion of client-held older history. An explicit `message.deleted` tombstone has separate meaning.
+History returns `messages`, `last_seq`, `pruned_through`, `event_cursor`, `gap`, `has_more`, and `next_change`. The `messages.history_pages.v1` capability advertises latest, backward and durable-change paging. Choose one of `after`, `before`, `latest=true`, or `changes_after`; incompatible modes and negative cursors return 400. Limits are 1–100. Forward pages use the last returned sequence; backward pages use the first. `gap` describes whether `after` precedes the retention boundary or exceeds the current sequence. Expired messages are hidden before maintenance.
+
+Load the latest page before downloading older history. Keep an independent per-conversation change checkpoint and advance it to `next_change` only after merging each changes page; continue while `has_more`. Message revisions survive event-log expiry for as long as their message rows are retained. Migration assigns change cursors to retained edits and deletions made before revision tracking was available. A multi-page fetch is not one long snapshot: reconcile live events from the earliest page's `event_cursor`, and never replace a newer cached revision with an older page. Resume archive downloads from a separate sequence checkpoint. An existing cache without a change checkpoint must reconcile from zero once. A `history.pruned` event reports server retention and does **not** request deletion of client-held older history. An explicit `message.deleted` tombstone has separate meaning.
 
 Text accounting is serialized message JSON plus 64 bytes per row, and serialized event JSON plus 64 bytes per replay row. Channels and DMs have independent budgets. Channel capacity pruning removes oldest retained channel data; full DM text storage rejects new writes. DM age retention is independently configured and defaults to zero. PostgreSQL page/index/WAL/metadata overhead is separate.
 

@@ -58,7 +58,7 @@ func (s *Store) ReadStates(ctx context.Context, p identity.Principal, ids []stri
 	rows, err := s.Pool.Query(ctx, `SELECT c.kind,c.id,COALESCE(r.last_seq,0),c.last_seq,count(m.id),count(m.id) FILTER (WHERE $2=ANY(m.mention_user_ids)),v.event_seq
       FROM chatxo.conversations c CROSS JOIN chatxo.storage v
       LEFT JOIN chatxo.read_positions r ON r.conversation_id=c.id AND r.user_id=$2
-      LEFT JOIN chatxo.messages m ON m.conversation_id=c.id AND m.seq>COALESCE(r.last_seq,0) AND NOT m.deleted AND m.author_id<>$2 AND chatxo.message_retained(c.id,m.created_at,$4,$5)
+      LEFT JOIN chatxo.messages m ON m.conversation_id=c.id AND m.seq>COALESCE(r.last_seq,0) AND NOT m.deleted AND m.author_id<>$2 AND ((c.kind='dm' AND $5::bigint=0) OR m.created_at>now()-(CASE WHEN c.kind='dm' THEN $5::bigint ELSE $4::bigint END)*interval '1 day')
       WHERE c.instance_id=$1 AND c.id=ANY($3::uuid[])
       GROUP BY c.id,r.last_seq,v.event_seq ORDER BY c.id`, s.InstanceID, p.User.ID, ids, s.CurrentPolicy().TextRetentionDays, s.CurrentPolicy().DM.TextRetentionDays)
 	if err != nil {

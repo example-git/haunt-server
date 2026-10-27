@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Policy struct {
@@ -29,6 +30,8 @@ type Config struct {
 	ListenAddr              string
 	DatabaseURL             string `json:"-"`
 	DBMaxConns              int32
+	Capacity                map[Workload]WorkloadCapacity
+	HTTPQueueWait           time.Duration
 	ClientOrigins           []string
 	ClientUpdateManifestURL string
 	ClientUpdateInstallers  bool
@@ -119,6 +122,9 @@ func LoadValues(values map[string]string) (Config, error) {
 		return Config{}, err
 	}
 	c.DBMaxConns = int32(maxConns)
+	if err := e.loadCapacity(&c); err != nil {
+		return Config{}, err
+	}
 	c.ClientOrigins = []string{c.PublicURL}
 	if HostedClientOrigin != "" {
 		allowed, err := origin(HostedClientOrigin)

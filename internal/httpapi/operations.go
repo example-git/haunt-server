@@ -2,7 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"github.com/example-git/haunt-server/internal/config"
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/platform/postgres"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
 	"time"
 )
@@ -19,7 +22,7 @@ func (f *Features) operations(a *api, mux routeRegistrar) {
 			a.fail(w, r, err)
 			return
 		}
-		pool := f.Chat.Pool.Stat()
+		pool := databaseStats(f.Chat.Pool)
 		rows, err := f.Chat.Pool.Query(r.Context(), `SELECT relname,pg_total_relation_size(relid),n_dead_tup FROM pg_stat_user_tables WHERE schemaname='chatxo' ORDER BY relname`)
 		if err != nil {
 			a.fail(w, r, err)
@@ -42,7 +45,7 @@ func (f *Features) operations(a *api, mux routeRegistrar) {
 			a.fail(w, r, err)
 			return
 		}
-		writeJSON(w, 200, statsResponse{Storage: map[string]any{"retained_text_bytes": text, "attachment_reserved_bytes": attachments, "messages": messages, "events": events, "attachments": files, "database_bytes": dbBytes, "wal_bytes_since_reset": walBytes, "relations": relations}, Policy: f.Chat.CurrentPolicy(), Pool: map[string]any{"total_connections": pool.TotalConns(), "acquired_connections": pool.AcquiredConns(), "idle_connections": pool.IdleConns(), "acquire_count": pool.AcquireCount(), "empty_acquire_count": pool.EmptyAcquireCount(), "acquire_duration_ns": pool.AcquireDuration().Nanoseconds()}, StorageLock: f.Chat.LockStats(), Events: f.Gateway.stats(), Media: f.Voice.Stats(), Relay: f.Relay.Stats(), CloudflareTURN: f.CloudTURN.Stats()})
+		writeJSON(w, 200, statsResponse{Storage: map[string]any{"retained_text_bytes": text, "attachment_reserved_bytes": attachments, "messages": messages, "events": events, "attachments": files, "database_bytes": dbBytes, "wal_bytes_since_reset": walBytes, "relations": relations}, Policy: f.Chat.CurrentPolicy(), Pool: pool, Traffic: a.capacity.stats(), StorageLock: f.Chat.LockStats(), Events: f.Gateway.stats(), Media: f.Voice.Stats(), Relay: f.Relay.Stats(), CloudflareTURN: f.CloudTURN.Stats()})
 	}))
 	mux.HandleFunc("POST /api/v1/admin/maintenance", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		if !p.Can(identity.ManageConfiguration) {
@@ -61,4 +64,23 @@ func (f *Features) operations(a *api, mux routeRegistrar) {
 		}
 		w.WriteHeader(204)
 	}))
+}
+
+func databaseStats(pool postgres.Pool) map[string]any {
+	stats := map[config.Workload]*pgxpool.Stat{config.Control: pool.Stat()}
+	if pools, ok := pool.(*postgres.WorkloadPools); ok {
+		stats = pools.WorkloadStats()
+	}
+	workloads := map[string]any{}
+	totals := map[string]any{}
+	for workload, stat := range stats {
+		values := map[string]int64{"max_connections": int64(stat.MaxConns()), "total_connections": int64(stat.TotalConns()), "acquired_connections": int64(stat.AcquiredConns()), "idle_connections": int64(stat.IdleConns()), "acquire_count": stat.AcquireCount(), "empty_acquire_count": stat.EmptyAcquireCount(), "canceled_acquire_count": stat.CanceledAcquireCount(), "acquire_duration_ns": stat.AcquireDuration().Nanoseconds()}
+		workloads[string(workload)] = values
+		for name, value := range values {
+			previous, _ := totals[name].(int64)
+			totals[name] = previous + value
+		}
+	}
+	totals["workloads"] = workloads
+	return totals
 }

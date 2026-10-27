@@ -20,6 +20,10 @@ jobs:
         shell: bash
     env:
       HAUNT_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:32768/chatxo_check?sslmode=disable
+      HAUNT_SYNC_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:32768/haunt_sync_iteration?sslmode=disable
+      HAUNT_SYNC_E2E: '1'
+      HAUNT_CLIENT_DIR: ${{ github.workspace }}/client
+      CHROME_PATH: /usr/bin/google-chrome
     steps:
       - name: Validate optional endurance duration
         env:
@@ -31,6 +35,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: example-git/haunt-sync
+          ref: fa017bdbbea82bbd0bd31259f208257f763c97fc
+          path: sync
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -60,7 +69,10 @@ jobs:
           test "$(docker inspect chatxo-identity-check --format '{{.Config.Image}}')" = postgres:16-alpine
           test "$(docker port chatxo-identity-check 5432/tcp)" = 127.0.0.1:32768
           for _ in $(seq 1 60); do
-            if docker exec chatxo-identity-check pg_isready -U postgres -d chatxo_check; then exit 0; fi
+            if docker exec chatxo-identity-check pg_isready -h 127.0.0.1 -U postgres -d chatxo_check; then
+              docker exec chatxo-identity-check createdb -h 127.0.0.1 -U postgres haunt_sync_iteration
+              exit 0
+            fi
             sleep 1
           done
           exit 1

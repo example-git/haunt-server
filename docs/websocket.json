@@ -807,6 +807,9 @@
           "gap": {
             "type": "boolean"
           },
+          "has_more": {
+            "type": "boolean"
+          },
           "last_seq": {
             "format": "int64",
             "type": "integer"
@@ -820,6 +823,10 @@
               "null"
             ]
           },
+          "next_change": {
+            "format": "int64",
+            "type": "integer"
+          },
           "pruned_through": {
             "format": "int64",
             "type": "integer"
@@ -830,7 +837,9 @@
           "pruned_through",
           "last_seq",
           "event_cursor",
-          "gap"
+          "gap",
+          "has_more",
+          "next_change"
         ],
         "type": "object"
       },
@@ -1137,9 +1146,44 @@
         ],
         "type": "object"
       },
+      "EmbedsMedia": {
+        "properties": {
+          "alt": {
+            "type": "string"
+          },
+          "cache_key": {
+            "type": "string"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "poster": {
+            "type": "boolean"
+          },
+          "width": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
       "EmbedsPreview": {
         "properties": {
+          "author_handle": {
+            "type": "string"
+          },
           "author_name": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "boolean"
+          },
+          "avatar_key": {
             "type": "string"
           },
           "description": {
@@ -1151,16 +1195,47 @@
           "image_alt": {
             "type": "string"
           },
+          "image_key": {
+            "type": "string"
+          },
           "index": {
             "type": "integer"
           },
           "kind": {
             "type": "string"
           },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/EmbedsMedia"
+            },
+            "type": "array"
+          },
+          "player": {
+            "enum": [
+              "vimeo",
+              "streamable",
+              "twitch-video",
+              "twitch-channel",
+              "twitch-clip"
+            ],
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string"
+          },
+          "player_token": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
           "published_at": {
             "type": "string"
           },
           "site_name": {
+            "type": "string"
+          },
+          "status": {
             "type": "string"
           },
           "theme_color": {
@@ -1667,6 +1742,22 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "HttpapiEmbedTicketResponse": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_at"
+        ],
         "type": "object"
       },
       "HttpapiEmbedsResponse": {
@@ -2651,9 +2742,17 @@
               "object",
               "null"
             ]
+          },
+          "traffic": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
           }
         },
         "required": [
+          "traffic",
           "storage",
           "policy",
           "pool",

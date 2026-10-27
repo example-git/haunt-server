@@ -35,7 +35,7 @@ func featureFixture(t *testing.T, textCap int64, configure ...func(*config.Confi
 		apply(&f.cfg)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	features, err := NewFeatures(context.Background(), f.cfg, f.pool, f.identities, logger)
+	features, err := NewFeatures(context.Background(), f.cfg, f.pools, f.identities, logger)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,6 +23,7 @@ import (
 )
 
 type api struct {
+	capacity       admissionController
 	identity       *identity.Service
 	logger         *slog.Logger
 	limits         *limiter

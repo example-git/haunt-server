@@ -10,6 +10,8 @@ const MaxLinks = 3
 
 var linkPattern = regexp.MustCompile(`(?i)https?://[^\s<>"\x60]+`)
 var youtubeID = regexp.MustCompile(`^[a-zA-Z0-9_-]{11}$`)
+var tiktokPostPath = regexp.MustCompile(`^/@[a-zA-Z0-9_.]+/video/[0-9]{1,25}/?$`)
+var tiktokShortPath = regexp.MustCompile(`^/(?:t/)?[a-zA-Z0-9]+/?$`)
 
 // Links extracts a small, stable list. Backtick code and <angle-wrapped links>
 // do not generate previews; punctuation outside a URL is not fetched.
@@ -96,4 +98,20 @@ func YouTube(raw string) string {
 		return id
 	}
 	return ""
+}
+
+func ClientPost(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || u.Port() != "" {
+		return false
+	}
+	switch strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.") {
+	case "bsky.app":
+		return blueskyPath.MatchString(u.Path)
+	case "tiktok.com", "m.tiktok.com":
+		return tiktokPostPath.MatchString(u.Path) || (strings.HasPrefix(u.Path, "/t/") && tiktokShortPath.MatchString(u.Path))
+	case "vm.tiktok.com", "vt.tiktok.com":
+		return !strings.HasPrefix(u.Path, "/t/") && tiktokShortPath.MatchString(u.Path)
+	}
+	return false
 }

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/platform/postgres"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Provider struct {
@@ -34,14 +34,14 @@ type RegisterRequest struct {
 	Credentials   Credentials   `json:"credentials"`
 }
 type Registry struct {
-	pool     *pgxpool.Pool
+	pool     postgres.Pool
 	ids      *identity.Service
 	instance string
 	aead     cipher.AEAD
 	slots    chan struct{}
 }
 
-func New(ctx context.Context, pool *pgxpool.Pool, ids *identity.Service, dir, instance string) (*Registry, error) {
+func New(ctx context.Context, pool postgres.Pool, ids *identity.Service, dir, instance string) (*Registry, error) {
 	keyPath := filepath.Join(dir, "storage-provider.key")
 	key, err := os.ReadFile(keyPath)
 	if errors.Is(err, os.ErrNotExist) {

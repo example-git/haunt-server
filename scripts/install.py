@@ -40,7 +40,7 @@ SECTIONS: tuple[tuple[str, tuple[Field, ...]], ...] = (
     )),
     ("Database and authentication", (
         Field("HAUNT_DATABASE_URL", "PostgreSQL URL", "Dedicated PostgreSQL connection. Blank in container mode uses its private database.", "", ("container", "bare-metal"), secret=True),
-        Field("HAUNT_DB_MAX_CONNS", "Database connections", "Maximum application pool size; include this in PostgreSQL capacity planning.", "16"),
+        Field("HAUNT_DB_MAX_CONNS", "Database connections", "Control pool limit; feature pools add 22 connections by default, plus one gateway listener. See docs/concurrency.md.", "16"),
         Field("HAUNT_SESSION_DAYS", "Session lifetime (days)", "How long remembered sign-ins remain valid, from 1 to 365.", "30"),
         Field("HAUNT_AUTH_PARALLEL", "Parallel password checks", "Each Argon2id operation uses about 64 MiB; range 1 to 32.", "4"),
     )),

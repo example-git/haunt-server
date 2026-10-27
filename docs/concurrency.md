@@ -5,8 +5,8 @@ Concurrency is implemented across HTTP requests, device sessions, rooms and pool
 | State/work | Owner and bound |
 | --- | --- |
 | Configuration | Startup-only host settings; revisioned runtime policy is persisted and published without restart |
-| HTTP | Request context; 128 active ordinary handlers; health and bounded WebSocket admission are separate |
-| PostgreSQL | `pgxpool`, default 16 connections; transaction-local connection ownership |
+| HTTP | Independent FIFO queues for control, history, messages, embeds, media, realtime HTTP and maintenance; canceled waiters leave immediately |
+| PostgreSQL | Independent feature pools, 38 connections in total by default; transactions stay on their acquired connection |
 | Passwords | Nonblocking semaphore, default four Argon2id jobs at 64 MiB/job |
 | Authentication limits | 32 shards × 512 live keys; short locks, no database/hashing inside |
 | Sessions/invitations | Per-account SQL row boundaries; 20 sessions and 100 active invitations per creator |
@@ -21,6 +21,28 @@ Concurrency is implemented across HTTP requests, device sessions, rooms and pool
 | Encoded media sockets | One per active participant/device; 64 frames/2 MiB per receiver; overflow disconnects; network I/O outside room locks |
 | Cloudflare credentials | Separate device/SFU cache keys; 1024 entries, eight in-flight requests, per-key request coalescing; no network I/O under cache locks |
 | Optional relay | Port range and strict allocation cap; ≤64 allocations/device session; bounded TCP/TLS listeners and owned sockets |
+
+## Feature capacity
+
+| Workload | Active HTTP handlers | Queued HTTP requests | PostgreSQL connections |
+| --- | ---: | ---: | ---: |
+| Control: accounts, directory, configuration | 64 | 64 | 16 |
+| History: message pages, individual messages, read snapshots, encryption history | 128 | 128 | 8 |
+| Messages: sends, edits, deletes, read acknowledgments, encryption writes | 32 | 64 | 4 |
+| Embeds: metadata, video tickets, attachment metadata | 8 | 32 | 2 |
+| Media: attachments, embed images/video, art, plugin files, client downloads | 32 | 32 | 2 |
+| Realtime: event/media socket queries and voice control | 32 | 32 | 4 |
+| Maintenance: scheduled and requested cleanup | 1 | 1 | 2 |
+
+`HAUNT_HTTP_<WORKLOAD>_ACTIVE` and `HAUNT_HTTP_<WORKLOAD>_QUEUED` override each row, using uppercase workload names. Active limits accept 1–4096; queue limits accept 0–8192. `HAUNT_HTTP_QUEUE_WAIT_MS` defaults to 1000 and accepts 1–10000. Queue wait counts toward the request deadline. A full queue or expired wait returns 503 `request_capacity_reached` with `Retry-After: 1`. Successful requests release their slot directly to the oldest waiter. Cancellation removes a waiter without running its handler.
+
+`HAUNT_DB_MAX_CONNS` controls the control pool (default 16). `HAUNT_DB_<WORKLOAD>_CONNS` controls each other row and accepts 1–1024. These are additive limits: PostgreSQL needs capacity for their sum plus the gateway listener and operator connections. Pools share database identity and TLS settings, but have independent connections and acquisition queues. Background maintenance and preview-cache jobs select their own pools. Authentication, moderation and authorization queries use the caller's workload pool; they do not funnel every feature through the control pool.
+
+Health checks bypass HTTP queues. Event and media WebSockets use their existing socket bounds and the realtime database pool; an open socket never occupies an ordinary HTTP slot. Live calls, feeds, and HTTP handlers run concurrently. These boundaries isolate connection and handler exhaustion, while PostgreSQL CPU, disk, quota-row locks, network bandwidth and host resources remain shared.
+
+Preview metadata and image fetches each allow eight active provider jobs and 32 waiting jobs, with a one-second wait and a six-second total job deadline. Duplicate keys share a job. Busy results are not cached. Media downloads use a separate outbound HTTP transport from metadata, so their per-host connection limits are independent. Upload/probe and video-stream limits still apply within the media workload.
+
+`GET /api/v1/admin/stats` reports current HTTP activity, queue depth, admissions, full-queue rejections and queue timeouts under `traffic`. Its `pool` totals include all pools, and `pool.workloads` reports connection occupancy, acquisitions, canceled acquisitions and acquisition duration for each feature.
 
 ## Database ordering
 
@@ -46,6 +68,6 @@ The tests exercise real request cancellation behind a held quota row while other
 
 ## Account event gateway
 
-Account feeds cache authorized conversation IDs and refresh that cache on committed directory/permission hints. One dedicated PostgreSQL `LISTEN chatxo_gateway` connection per server wakes independent socket workers; it is additional to `HAUNT_DB_MAX_CONNS`. It never runs their queries or serializes database work. Each connection has a one-slot wake queue, coalesced flags and at most 100 pending read IDs; overflow requests a compact read snapshot. Work is capped at ten rounds per second per socket; an idle five-second check handles sessions/event recovery. Listener reconnect invalidates directory/read caches. Legacy explicit subscriptions remain compatible.
+Account feeds cache authorized conversation IDs and refresh that cache on committed directory/permission hints. One dedicated PostgreSQL `LISTEN chatxo_gateway` connection per server wakes independent socket workers; it is additional to the sum of the feature pool limits. It never runs their queries or serializes database work. Each connection has a one-slot wake queue, coalesced flags and at most 100 pending read IDs; overflow requests a compact read snapshot. Work is capped at ten rounds per second per socket; an idle five-second check handles sessions/event recovery. Listener reconnect invalidates directory/read caches. Legacy explicit subscriptions remain compatible.
 
 Durable replay batches contain at most 100 events and 768 KiB, with bounded output queues (128 frames/1 MiB). Slow clients disconnect and resume from persisted cursors. Read positions take only a user/conversation row lock, advance monotonically, and do not acquire the shared quota row. Read snapshots are paged in groups of 100. Message mention IDs are resolved once on write; unread queries use conversation/sequence indexes and exclude self/deleted/expired content. Presence watching is optional and can be disabled for background servers.

@@ -59,3 +59,46 @@ web client embedded. Cross-compilation proves a binary can be produced, not that
 all hardware, network or operating-system behavior works. Test the intended host,
 TLS/proxy settings, microphone/camera devices and network paths before relying on
 them. Large-room capacity and long-duration call performance need separate testing.
+
+## History capacity and social previews
+
+`TestHistoryScale` is opt-in and creates a disposable database through the same
+isolated PostgreSQL helper. It seeds 10,000, 100,000 and 1,000,000 retained messages,
+then measures simultaneous bursts of 1, 10, 50, 200, 500 and 1000 history readers. Its JSON
+report separates successful-request latency from all-response latency, records
+HTTP failures and database acquisition time, and samples heap use for the server
+and in-process load generator together. Bursts through 200 readers must succeed;
+500/1000-reader bursts deliberately exceed the default 128-active/128-waiting
+capacity and report overflow. At one million messages it also runs 200 history
+requests per second for ten seconds alongside delayed embed/media providers and
+message sends. Every request in that sustained mix must succeed.
+
+```sh
+HAUNT_SCALE_TEST=1 HAUNT_SCALE_LATEST=1 \
+  HAUNT_SCALE_CLIENT_DIR=/absolute/path/to/client \
+  HAUNT_SCALE_REPORT=/absolute/path/to/results.json \
+  go test ./internal/httpapi -run '^TestHistoryScale$' -count=1 -v -timeout=12m
+```
+
+Set `HAUNT_TEST_DATABASE_URL` to the dedicated test fixture first. Omit
+`HAUNT_SCALE_LATEST` to exercise the compatible forward-page endpoint. The optional
+client directory runs real Chromium with IndexedDB and the production client core,
+then checks bounded rendering and older-history navigation. Set
+`HAUNT_SCALE_CONNECT_ONLY=1` with `HAUNT_SCALE_LATEST=1` for a million-message cold
+connection, including unread counts and the account WebSocket handshake. Seeding
+has its own five-minute timeout and is excluded from request latency measurements.
+Use `HAUNT_SCALE_UI_ONLY=1` for the 10,000-message navigation check, including a
+reply to a message outside the downloaded recent history.
+This fixture covers a large retained channel, not Discord-wide server or fanout
+capacity, long-duration workloads, or a physical mobile device.
+
+In the client checkout, `HAUNT_CLIENT_CHECK=embeds npm run test:integration` runs
+native cards, multi-image rendering, X/TikTok video and Bluesky HLS playback/seeking, access checks,
+scrolling and mobile-width layout against controlled provider fixtures. Use
+`HAUNT_CLIENT_CHECK=desktop-embeds` for the Linux Electron path.
+
+`HAUNT_LIVE_EMBEDS=1 go test ./internal/embeds -run TestLiveSocialProviders -v`
+performs bounded real-provider metadata/image/range checks. For real browser
+playback, run the client integration command with `HAUNT_CLIENT_CHECK=live-embeds`
+and `HAUNT_LIVE_EMBED_POSTS` containing a JSON array of one to four public X,
+TikTok or Bluesky image/video post URLs. These checks depend on current provider availability.
