@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build small server + static web update archives for the fixed runtime image."""
+import argparse
 import hashlib
 import json
 import os
@@ -14,17 +15,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    version = sys.argv[1].removeprefix("server-v")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("version")
+    parser.add_argument("output", nargs="?", type=Path, default=ROOT / "release")
+    parser.add_argument("--arch", choices=["amd64", "arm64"], action="append")
+    args = parser.parse_args()
+    version = args.version.removeprefix("server-v")
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Usage: package-container-app.py MAJOR.MINOR.PATCH [release-directory]")
-    output = Path(sys.argv[2] if len(sys.argv) > 2 else ROOT / "release").resolve()
+    output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     runtime = (ROOT / "deploy/container/runtime-version").read_text().strip()
     web = ROOT / "client/dist"
     if not (web / "haunt-build.json").is_file():
         raise ValueError("Build the web client first")
     manifest = {"schema": 1, "version": version, "runtime": runtime, "platforms": {}}
-    for arch in ["amd64", "arm64"]:
+    for arch in args.arch or ["amd64", "arm64"]:
         with tempfile.TemporaryDirectory(prefix="haunt-app-") as temporary:
             stage = Path(temporary)
             subprocess.run(["go", "build", "-p", "2", "-trimpath", "-ldflags=-s -w -X main.version=" + version + " -X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=" + os.environ.get("HAUNT_WEB_CLIENT_ORIGIN", ""),
