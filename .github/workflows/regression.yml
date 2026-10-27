@@ -23,6 +23,7 @@ jobs:
       HAUNT_SYNC_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:32768/haunt_sync_iteration?sslmode=disable
       HAUNT_SYNC_E2E: '1'
       HAUNT_CLIENT_DIR: ${{ github.workspace }}/client
+      CHROME_PATH: /usr/bin/google-chrome
     steps:
       - name: Validate optional endurance duration
         env:
