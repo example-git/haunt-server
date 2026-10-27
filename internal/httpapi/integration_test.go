@@ -25,6 +25,7 @@ const testPassword = "a long test passphrase"
 type fixture struct {
 	cfg        config.Config
 	pool       *pgxpool.Pool
+	pools      *postgres.WorkloadPools
 	identities *identity.Service
 	server     *httptest.Server
 	owner      identity.Login
@@ -39,13 +40,18 @@ func newFixture(t *testing.T) *fixture {
 	if err := postgres.Migrate(ctx, pool, cfg.InstanceID); err != nil {
 		t.Fatal(err)
 	}
-	identities, err := identity.New(ctx, cfg, pool)
+	pools, err := postgres.OpenWorkloads(ctx, pool, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pools.Close)
+	identities, err := identity.New(ctx, cfg, pools)
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(New(cfg, identities, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler)
 	t.Cleanup(server.Close)
-	f := &fixture{cfg: cfg, pool: pool, identities: identities, server: server}
+	f := &fixture{cfg: cfg, pool: pool, pools: pools, identities: identities, server: server}
 	f.call(t, "POST", "/api/v1/auth/login", "", map[string]any{"username": "OWNER", "password": testPassword, "device_name": "owner desktop"}, 200, &f.owner)
 	return f
 }

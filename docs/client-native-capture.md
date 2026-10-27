@@ -1,4 +1,33 @@
-# macOS native capture
+# Desktop native capture
+
+## Linux output audio and shortcuts
+
+Linux keeps Chromium screen/window video capture and adds a bundled
+`HauntAudioWorker` for the selected output's monitor. The worker uses libpulse,
+including PipeWire's PulseAudio compatibility service, to enumerate output
+monitors and capture 48 kHz stereo float PCM. The main process accepts an output
+only from the capture picker, streams bounded PCM packets through the trusted
+preload and stops the worker on share stop, renderer navigation/crash or exit.
+The renderer publishes the resulting track as `screen_audio`.
+
+`HauntShortcutWorker` supplies held-key transitions: X11 F9 or Wayland's
+GlobalShortcuts portal. Desktop settings show binding failures and keep the
+push-to-talk microphone gate closed until a valid press arrives.
+
+Linux builds need `pkg-config`, a C compiler, `libpulse-dev`, `libglib2.0-dev`
+and `libx11-dev`. `node scripts/build-linux-audio.mjs` builds both helpers for
+the host architecture; desktop staging also runs it. AppImage/RPM resources
+include both ELF helpers. Runtime audio needs libpulse and a running PulseAudio
+or PipeWire PulseAudio service. Helper changes require an installer update.
+
+`HAUNT_CLIENT_CHECK=linux-share-audio npm run test:integration` uses a private
+Xvfb display and an isolated PulseAudio null output. It exercises the production
+picker, output capture, IPC, receiver decoding, mute/deafen independence,
+held-key shortcuts and capture cleanup. It requires `pulseaudio`,
+`pulseaudio-utils`, `xdotool` and `xfwm4`. It does not establish native Wayland
+compositor compatibility.
+
+## macOS native capture
 
 Apple Silicon Electron builds use SwiftCaptureWorker for webcams/capture cards
 and screen/window sharing. The executable and its integrity manifest are bundled

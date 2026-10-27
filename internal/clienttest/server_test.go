@@ -43,7 +43,12 @@ func server(t *testing.T, name string, encoded bool) fixture {
 	if err := postgres.Migrate(ctx, pool, id); err != nil {
 		t.Fatal(err)
 	}
-	ids, err := identity.New(ctx, cfg, pool)
+	pools, err := postgres.OpenWorkloads(ctx, pool, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pools.Close)
+	ids, err := identity.New(ctx, cfg, pools)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +60,7 @@ func server(t *testing.T, name string, encoded bool) fixture {
 		cfg.ClientUpdateManifestURL = "https://github.com/example-git/haunt-client/releases/latest/download/haunt-updates.json"
 		cfg.ClientUpdateInstallers = true
 	}
-	features, err := httpapi.NewFeatures(ctx, cfg, pool, ids, log)
+	features, err := httpapi.NewFeatures(ctx, cfg, pools, ids, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +90,10 @@ func server(t *testing.T, name string, encoded bool) fixture {
 			t.Error(err)
 		}
 	})
-	features.Previews.Close()
-	features.Previews = fixturePreviews{}
+	if os.Getenv("HAUNT_CLIENT_CHECK") != "live-embeds" {
+		features.Previews.Close()
+		features.Previews = fixturePreviews{}
+	}
 	login, err := ids.Login(ctx, "owner", password, "fixture")
 	if err != nil {
 		t.Fatal(err)

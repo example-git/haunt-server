@@ -21,6 +21,7 @@ import (
 	"github.com/example-git/haunt-server/internal/chat"
 	"github.com/example-git/haunt-server/internal/config"
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/platform/postgres"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -173,7 +174,7 @@ func (s *Store) Upload(ctx context.Context, p identity.Principal, conv, name str
 	complete := false
 	defer func() {
 		if !complete {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			cleanupCtx, cancel := context.WithTimeout(postgres.WithWorkload(context.Background(), config.Media), 5*time.Second)
 			defer cancel()
 			_ = s.markDeleting(cleanupCtx, a.ID)
 			_ = s.remove(cleanupCtx, a.ID)

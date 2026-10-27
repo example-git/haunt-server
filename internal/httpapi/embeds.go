@@ -18,11 +18,17 @@ import (
 type embedsResponse struct {
 	Embeds []embeds.Preview `json:"embeds"`
 }
+type embedsQuery struct {
+	ClientPosts bool `query:"client_posts"`
+}
 type embedImageQuery struct {
-	Index int `query:"index" minimum:"0" maximum:"2" required:"true"`
+	Index  int  `query:"index" minimum:"0" maximum:"2" required:"true"`
+	Asset  *int `query:"asset" minimum:"0" maximum:"3"`
+	Avatar bool `query:"avatar"`
 }
 
 func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
+	f.embedVideoRoutes(a, mux)
 	mux.HandleFunc("GET /api/v1/conversations/{id}/messages/{message}/embeds", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		if !a.limit(w, "embeds:"+p.User.ID, 240, time.Minute) {
 			return
@@ -39,6 +45,9 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 		failures := make([]error, len(links))
 		var wg sync.WaitGroup
 		for index, link := range links {
+			if r.URL.Query().Get("client_posts") == "true" && embeds.ClientPost(link) {
+				continue
+			}
 			wg.Add(1)
 			go func(index int, link string) {
 				defer wg.Done()
@@ -57,7 +66,10 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 				writeJSON(w, 503, errorResponse{Error: "embed_busy"})
 				return
 			}
-			if failures[i] == nil && (result.Title != "" || result.Image || result.YouTubeID != "") {
+			if failures[i] != nil {
+				result = embeds.Preview{Index: i, URL: links[i], Kind: "link", Status: "unavailable"}
+			}
+			if result.Status == "unavailable" || result.Title != "" || result.Description != "" || result.Image || result.YouTubeID != "" || result.Player != "" || len(result.Media) > 0 || result.Author != "" {
 				response.Embeds = append(response.Embeds, result)
 			}
 		}
@@ -91,15 +103,38 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 			writeJSON(w, 503, errorResponse{Error: "embed_busy"})
 			return
 		}
-		if err != nil || !preview.Image {
+		if err != nil {
+			a.fail(w, r, identity.ErrNotFound)
+			return
+		}
+		imageURL := preview.ImageURL
+		embedded := preview.Asset
+		if raw := r.URL.Query().Get("asset"); raw != "" {
+			item, parseErr := strconv.Atoi(raw)
+			if parseErr != nil || item < 0 || item >= len(preview.Media) {
+				a.fail(w, r, identity.ErrInvalid)
+				return
+			}
+			media := preview.Media[item]
+			imageURL = media.URL
+			if media.Kind != "image" {
+				imageURL = media.PosterURL
+			}
+			embedded = nil
+		}
+		if r.URL.Query().Get("avatar") == "true" {
+			imageURL = preview.AvatarURL
+			embedded = nil
+		}
+		if imageURL == "" && embedded == nil {
 			a.fail(w, r, identity.ErrNotFound)
 			return
 		}
 		var asset embeds.Asset
-		if preview.Asset != nil {
-			asset = *preview.Asset
+		if embedded != nil {
+			asset = *embedded
 		} else {
-			asset, err = f.Previews.Image(ctx, preview.ImageURL)
+			asset, err = f.Previews.Image(ctx, imageURL)
 		}
 		if err != nil {
 			if errors.Is(err, embeds.ErrBusy) {

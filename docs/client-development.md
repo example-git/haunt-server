@@ -35,21 +35,71 @@ builds can configure additional origins through `HAUNT_CLIENT_ORIGINS`.
 
 ## Rich message previews
 
-`messages.embeds` advertises three generated authenticated GET operations:
+`messages.embeds` advertises authenticated metadata and image operations:
 
-- `/api/v1/conversations/{id}/messages/{message}/embeds` returns `{embeds: [...]}` with each card's stable `index`, destination `url`, `kind`, plain-text title/description/site, optional author/published time/theme color, image availability and optional validated YouTube ID. Only retained, visible, undeleted messages qualify.
-- `/api/v1/conversations/{id}/messages/{message}/embeds/image?index=0` returns checked image bytes. Use an authenticated fetch and a revocable object URL; do not put bearer tokens in image URLs.
+- `/api/v1/conversations/{id}/messages/{message}/embeds` returns `{embeds: [...]}` with each card's stable `index`, destination `url`, `kind`, plain-text title/description/site, optional author/handle/avatar/published time/theme color, media descriptors and validated player identifiers, and opaque image cache keys. A failed link has `status: "unavailable"`; successful links in the same message remain available. Only retained, visible, undeleted messages qualify.
+- `/api/v1/conversations/{id}/messages/{message}/embeds/image?index=0` returns checked image bytes. Select a post image or video poster with `asset=0` through `asset=3`, or the author image with `avatar=true`. Use an authenticated fetch and a revocable object URL; do not put bearer tokens in image URLs.
 - `/api/v1/attachments/{id}/metadata` returns authorized attachment metadata before choosing automatic image display or explicit video download.
 
-Clients should fetch only near visible messages, cancel when leaving, and treat failures as a normal link fallback. No new gateway subscription is needed and preview requests never mark a message read. Message edits/deletion or permission changes must discard displayed cards. Return values contain plain text, never executable markup. A YouTube ID permits constructing a fixed privacy-enhanced player URL, but does not authorize arbitrary provider HTML. Metadata follows [OpenGraph](https://ogp.me/); the optional player uses [YouTube's embed parameters](https://developers.google.com/youtube/player_parameters) and [privacy-enhanced host](https://support.google.com/youtube/answer/171780).
+X/Twitter post links use the FxTwitter JSON API with its HTML metadata fallback. X, Twitter and supported fixup aliases share a post cache key while each card keeps its original destination link. Cards contain up to four assets. The browser renders plain text and native image/video controls.
 
-The server fetches HTTP(S) on standard ports only, rejects private/reserved addresses and mixed public/private DNS answers, pins each connection to a validated address, and revalidates redirects. It ignores environment proxies and forwards no caller credentials, cookies or referer. Eight shared concurrent fetches, six-second deadlines, 1 MiB HTML, 4 MiB images, 16 megapixels, 512 cache entries and 32 MiB total cached data bound remote work. Metadata/images cache for 15 minutes and failures for 30 seconds. Each user has separate 240-per-minute card/image limits. Saturation returns 503 with Retry-After; the browser retries card requests twice. Preview data is ephemeral and does not enter message retention or event replay storage.
+Desktop downloads report progress, cancel/retry and file reveal under History &
+downloads. Server-proxied video saves assemble validated byte ranges into a
+temporary file and publish the file only when complete. Media cache budgets and
+clearing affect cached media, leaving message archives intact. Backup & restore
+runs text archive compression/import in a worker; downloaded-message search also
+runs in a worker. Cancelling import can retain chunks already committed.
+
+Desktop links use `haunt://open?server=<origin>&channel=<uuid>&message=<uuid>`.
+Channel and message parameters are optional, but a message needs a channel.
+Links reuse the matching server's existing account or open its sign-in screen;
+they never carry credentials. Server, channel and message menus can copy links.
+Launch links queue until account restoration and renderer readiness.
+
+TikTok and Bluesky posts resolve on each client without API accounts. TikTok uses the TikWM public resolver to obtain an MP4 source, including short share links. Bluesky uses the public AT Protocol API for text, images and HLS video, including quoted posts with media. Native video controls start playback only after a click; HLS.js supplies playlist playback where Media Source Extensions are available. These requests contact the known resolver and provider CDNs directly, exposing the viewer IP to those services but creating no connection to another member. Provider URLs are validated. Metadata and HLS fetches omit credentials and reject redirects. Desktop image requests also omit credentials, reject redirects and enforce a 4 MiB body limit. Bluesky browser images render directly from the validated official image CDN with no referrer because that CDN does not provide image-fetch CORS headers; the browser manages their HTTP cache. HLS segment requests are restricted to the Bluesky video CDN. Metadata is cached per server/account for one minute, and failed or expired video sources refresh on retry. Mixed-link requests set `client_posts=true` so the server skips posts handled locally and retains the other links' indexes.
+
+For X video and direct audio/video playback, authenticate `GET /api/v1/conversations/{id}/messages/{message}/embeds/video-ticket?index=0&asset=0`, then use the returned opaque `ticket` with `/embeds/video?ticket=...`. This media-only ticket expires after 30 minutes and is bound to that message, its body and the original session. Every range rechecks session and message access before delivery; edits, deletion, expiry and revocation invalidate playback. The session bearer token never appears in the media URL. Video responses support single byte ranges, capped at 8 MiB per response, with 16 concurrent streams and a separate 60-per-minute ticket limit per user. MP4, WebM, MP3, Ogg audio, WAV and FLAC are accepted when the browser supports their codecs. Direct files must have a supported media signature; a filename extension alone does not qualify. Images are decoded and checked; PDF and plain-text links get file cards. Arbitrary user-supplied playlists and HTML players are not executed.
+
+Clients should fetch only near visible messages, cancel when leaving, and show failed links with a retry action. Do not persist failed or empty results as successful metadata. No new gateway subscription is needed and preview requests never mark a message read. Message edits/deletion or permission changes must discard displayed cards. Return values contain plain text, never executable markup. Generic page previews read only the bounded HTML head: OpenGraph, Twitter card fields, description and title, stopping at the head end or body. Relative images resolve against the final page URL and load through the authenticated image proxy. Scripts, iframe markup and user-supplied player URLs are never rendered.
+
+YouTube, Vimeo, Streamable and Twitch links use fixed official player URLs built from validated hosts and identifiers. Players load only after a click; that connection exposes the viewer IP to the selected provider. Generic previews and direct files contact remote hosts from the server, never from the viewing browser. See [OpenGraph](https://ogp.me/), [YouTube parameters](https://developers.google.com/youtube/player_parameters), [Vimeo player](https://github.com/vimeo/player.js), and [Twitch embeds](https://dev.twitch.tv/docs/embed/video-and-clips/) for provider contracts.
+
+Image and avatar cache keys are scoped by the client to its server/account and reused across messages for the same asset within a 15-minute period. Server-fetched metadata refreshes after five minutes online and can be reused offline. Failed previews are not persisted.
+
+The server fetches HTTP(S) on standard ports only, rejects private/reserved addresses and mixed public/private DNS answers, pins each connection to a validated address, and revalidates redirects. It ignores environment proxies and forwards no caller credentials, cookies or referer. Separate metadata and media lanes each allow eight active and 32 queued fetches, with one-second queue waits and six-second fetch deadlines. Remote work is bounded to 1 MiB HTML, 4 MiB images, 16 megapixels, 512 cache entries and 32 MiB total cached data. Metadata/images cache for 15 minutes and failures for 30 seconds. Each user has separate 240-per-minute card/image limits. Saturation returns 503 with Retry-After; the browser retries card requests up to three times. Successful page metadata persists in a separate PostgreSQL cache for 15 minutes, bounded to 2,048 entries of at most 64 KiB each; decoded images remain in the bounded memory cache. Preview data does not enter message retention or event replay storage. History reads never wait for a preview provider.
+
+## Downloaded history and local search
+
+The client opens the newest 100 messages first, reconciles edits/deletions, and
+archives the active conversation in the background. **History & downloads** sets
+an automatic-download switch, byte budget and request budget. Defaults are
+64 KiB/s and 30 requests/minute, shared across connected servers in one window.
+One page can arrive immediately; subsequent requests account for its decoded JSON
+size. Retries also consume request budget. Hidden windows, offline state and the
+browser data-saver preference suspend background work. Foreground history loads
+remain available. Per-conversation pause state and archive checkpoints persist.
+
+**Search downloaded messages** queries the local account/conversation index and
+matches all normalized words, returning 50 results at a time. New messages,
+edits and deletions update the index atomically; old caches migrate in cancellable
+250-message batches. Search does not request remote history. Previously fetched
+contiguous ranges and completed archive ranges serve navigation from local
+storage. Messages outside the downloaded archive are not search results. Device
+storage quotas and browser eviction still apply.
+
+The browser also keeps a separate private text archive. Downloaded readable text
+survives live-chat deletion; restoring that archive never recreates live messages
+or live-search results. **Backup & restore** exports/imports compressed JSONL
+text files and lets users delete saved entries. Optional Haunt Sync encrypts and
+merges this archive across devices. Explicit archive deletions win over older
+synced/imported entries; exported files remain independent copies. Attachment
+bytes, session tokens and encryption keys are excluded from these text exports.
 
 ## Voice timestamps and source audio
 
 `media.joined_at` supplies UTC `joined_at` on each participant and roster entry. Use a shared client clock for elapsed timers. A new participant gets a fresh time; state/track updates preserve the original value. No timer messages or periodic HTTP calls are needed.
 
-`media.source_audio` adds `camera_audio` and `screen_audio` purposes. The transceiver/wire order is `audio`, `camera`, `screen`, `camera_audio`, `screen_audio`; encoded-purpose bytes are respectively 0–4 and the existing three values are unchanged. The two new purposes follow audio codec/size limits and never request video keyframes. Deafen applies to all audio, microphone mute to `audio` only, camera-off to camera video/audio, and screen-off to screen video/audio. Updated clients request extra capture audio only from a server advertising this capability. Upgrade participating clients together; legacy clients may not understand the additional purposes.
+`media.source_audio` adds `camera_audio` and `screen_audio` purposes. The transceiver/wire order is `audio`, `camera`, `screen`, `camera_audio`, `screen_audio`; encoded-purpose bytes are respectively 0–4 and the existing three values are unchanged. The two new purposes follow audio codec/size limits and never request video keyframes. Deafen silences received playback and blocks microphone publication; camera and screen audio publication remain independent. Microphone mute applies to `audio` only, camera-off to camera video/audio, and screen-off to screen video/audio. Updated clients request extra capture audio only from a server advertising this capability. Upgrade participating clients together; legacy clients may not understand the additional purposes.
 
 Playback levels are local settings keyed by listener account, server and remote user, with separate 0–100% microphone/camera/screen values. Do not store them on ephemeral participant IDs or send them as publisher state. Both browser transports expose separate audio streams and apply the selected level at the playback element.
 

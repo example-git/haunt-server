@@ -24,7 +24,7 @@ func New(c config.Config, identities *identity.Service, logger *slog.Logger, fea
 		mux.HandleFunc(method+" /setup", http.NotFound)
 		mux.HandleFunc(method+" /setup/", http.NotFound)
 	}
-	a := &api{identity: identities, logger: logger, limits: newLimiter(), trustedProxies: c.TrustedProxies, cloudflared: c.Cloudflared}
+	a := &api{capacity: newAdmission(c), identity: identities, logger: logger, limits: newLimiter(), trustedProxies: c.TrustedProxies, cloudflared: c.Cloudflared}
 	a.routes(mux)
 	a.clientUpdateRoutes(mux, c)
 	for _, f := range features {
@@ -38,7 +38,7 @@ func New(c config.Config, identities *identity.Service, logger *slog.Logger, fea
 	origins := append(append([]string{}, c.ClientOrigins...), c.PublicURL)
 	return &http.Server{
 		Addr:              c.ListenAddr,
-		Handler:           cors(origins, requestContext(admission(a.moderationBoundary(mux)))),
+		Handler:           cors(origins, requestContext(a.capacity.wrap(mux, a.moderationBoundary(mux)))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -69,7 +69,7 @@ func publicRoutes(mux routeRegistrar, c config.Config, identities *identity.Serv
 		capabilities := []string{"instance.discovery", "auth.invitation", "auth.password", "auth.password_reset", "sessions.devices", "sessions.persistent", "sessions.restore", "community.permissions", "community.role_sections", "community.channel_icons", "community.moderation", "community.ban_appeals", "community.emojis", "community.animated_art"}
 		if hasFeatures {
 			capabilities = append(capabilities, "server.extensions.v1")
-			capabilities = append(capabilities, "audio.plugins.v1", "menus.declarative.v1", "instance.configuration", "storage.providers", "messages.channels", "messages.voice_channels", "messages.dms", "dms.storage.v1", "dms.mls.v1", "messages.retention", "events.websocket", "events.account_feed", "presence.online", "messages.read_state", "messages.replies", "messages.embeds", "attachments.media", "media.voice", "media.camera", "media.screen", "media.presence", "media.source_audio", "media.joined_at", "media.moderation.v1", "media.layers.v1", "media.levels.v1")
+			capabilities = append(capabilities, "audio.plugins.v1", "menus.declarative.v1", "instance.configuration", "storage.providers", "messages.channels", "messages.voice_channels", "messages.dms", "dms.storage.v1", "dms.mls.v1", "messages.retention", "events.websocket", "events.account_feed", "presence.online", "messages.read_state", "messages.replies", "messages.history_pages.v1", "messages.embeds", "attachments.media", "media.voice", "media.camera", "media.screen", "media.presence", "media.source_audio", "media.joined_at", "media.moderation.v1", "media.layers.v1", "media.levels.v1")
 		}
 		capabilities = append(capabilities, "community.administrator")
 		if c.TURN.Enabled || c.HasExternalTURN() {
@@ -91,24 +91,6 @@ func publicRoutes(mux routeRegistrar, c config.Config, identities *identity.Serv
 			ClientUpdates: clientUpdateSource(c), InstanceID: c.InstanceID, Name: community.Name, Description: community.Description, AccentColor: community.AccentColor, IconVersion: community.IconVersion, BannerVersion: community.BannerVersion, PublicURL: c.PublicURL, APIVersion: "v1", Capabilities: capabilities, MediaTransport: c.MediaTransport(),
 			Authentication: authenticationInfo{Scheme: "Bearer", Registration: registration, SessionDays: runtime.SessionDays}, Limits: runtime.Limits,
 		})
-	})
-}
-
-func admission(next http.Handler) http.Handler {
-	slots := make(chan struct{}, 128)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/events" || r.URL.Path == "/api/v1/media" || r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		select {
-		case slots <- struct{}{}:
-			defer func() { <-slots }()
-			next.ServeHTTP(w, r)
-		default:
-			w.Header().Set("Retry-After", "1")
-			writeJSON(w, 503, map[string]string{"error": "request_capacity_reached"})
-		}
 	})
 }
 

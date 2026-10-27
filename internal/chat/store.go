@@ -14,12 +14,12 @@ import (
 
 	"github.com/example-git/haunt-server/internal/config"
 	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/example-git/haunt-server/internal/platform/postgres"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Store struct {
-	Pool         *pgxpool.Pool
+	Pool         postgres.Pool
 	Identity     *identity.Service
 	InstanceID   string
 	Policy       config.Policy
@@ -52,6 +52,16 @@ type History struct {
 	LastSeq       int64     `json:"last_seq"`
 	EventCursor   int64     `json:"event_cursor"`
 	Gap           bool      `json:"gap"`
+	HasMore       bool      `json:"has_more"`
+	NextChange    int64     `json:"next_change"`
+}
+
+type HistoryOptions struct {
+	After        int64
+	Before       int64
+	Latest       bool
+	ChangesAfter *int64
+	Limit        int
 }
 type Event struct {
 	ID             int64  `json:"id"`
@@ -68,7 +78,7 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	return m, err
 }
 
-func New(pool *pgxpool.Pool, ids *identity.Service, c config.Config) (*Store, error) {
+func New(pool postgres.Pool, ids *identity.Service, c config.Config) (*Store, error) {
 	if c.Policy.TextMaxBytes < 4096 {
 		return nil, errors.New("text budget must be at least 4096 bytes")
 	}
@@ -478,7 +488,12 @@ func (s *Store) Edit(ctx context.Context, p identity.Principal, conv, id, body s
 }
 
 func (s *Store) History(ctx context.Context, p identity.Principal, conv string, after int64, limit int) (History, error) {
-	if after < 0 || limit < 1 || limit > 100 {
+	return s.HistoryPage(ctx, p, conv, HistoryOptions{After: after, Limit: limit})
+}
+
+func (s *Store) HistoryPage(ctx context.Context, p identity.Principal, conv string, options HistoryOptions) (History, error) {
+	after, limit := options.After, options.Limit
+	if after < 0 || options.Before < 0 || limit < 1 || limit > 100 || (options.Latest && (after != 0 || options.Before != 0)) || (options.Before != 0 && after != 0) || (options.ChangesAfter != nil && (*options.ChangesAfter < 0 || after != 0 || options.Before != 0 || options.Latest)) {
 		return History{}, identity.ErrInvalid
 	}
 	if err := s.Access(ctx, p, conv, false); err != nil {
@@ -494,19 +509,33 @@ func (s *Store) History(ctx context.Context, p identity.Principal, conv string, 
 		return History{}, err
 	}
 	h := History{Messages: []Message{}}
-	if err = tx.QueryRow(ctx, `SELECT c.last_seq,c.pruned_through,s.event_seq FROM chatxo.conversations c CROSS JOIN chatxo.storage s WHERE c.id=$1`, conv).Scan(&h.LastSeq, &h.PrunedThrough, &h.EventCursor); err != nil {
+	var cutoff *time.Time
+	if err = tx.QueryRow(ctx, `SELECT c.last_seq,c.pruned_through,s.event_seq,CASE WHEN c.kind='dm' AND $3::bigint=0 THEN NULL ELSE now()-(CASE WHEN c.kind='dm' THEN $3::bigint ELSE $2::bigint END)*interval '1 day' END FROM chatxo.conversations c CROSS JOIN chatxo.storage s WHERE c.id=$1`, conv, policy.TextRetentionDays, policy.DM.TextRetentionDays).Scan(&h.LastSeq, &h.PrunedThrough, &h.EventCursor, &cutoff); err != nil {
 		return History{}, err
 	}
-	// Age filtering also advances the visible boundary before maintenance runs.
 	var expired int64
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(max(seq),0) FROM chatxo.messages WHERE conversation_id=$1 AND NOT chatxo.message_retained(conversation_id,created_at,$2,$3)`, conv, policy.TextRetentionDays, policy.DM.TextRetentionDays).Scan(&expired); err != nil {
+	if err = tx.QueryRow(ctx, `WITH expired AS MATERIALIZED (SELECT seq FROM chatxo.messages WHERE conversation_id=$1 AND created_at<=$2) SELECT COALESCE(max(seq),0) FROM expired`, conv, cutoff).Scan(&expired); err != nil {
 		return History{}, err
 	}
 	if expired > h.PrunedThrough {
 		h.PrunedThrough = expired
 	}
 	h.Gap = after < h.PrunedThrough || after > h.LastSeq
-	rows, err := tx.Query(ctx, `SELECT `+messageColumns+` FROM chatxo.messages WHERE conversation_id=$1 AND seq>$2 AND chatxo.message_retained(conversation_id,created_at,$3,$5) ORDER BY seq LIMIT $4`, conv, after, policy.TextRetentionDays, limit, policy.DM.TextRetentionDays)
+	query := `SELECT ` + messageColumns + ` FROM chatxo.messages WHERE conversation_id=$1 AND seq>$2 AND ($3::timestamptz IS NULL OR created_at>$3) ORDER BY seq LIMIT $4`
+	boundary := after
+	descending := options.Latest || options.Before != 0
+	if descending {
+		boundary = options.Before
+		if options.Latest {
+			boundary = h.LastSeq + 1
+		}
+		query = `SELECT ` + messageColumns + ` FROM chatxo.messages WHERE conversation_id=$1 AND seq<$2 AND ($3::timestamptz IS NULL OR created_at>$3) ORDER BY seq DESC LIMIT $4`
+	}
+	if options.ChangesAfter != nil {
+		boundary = *options.ChangesAfter
+		query = `SELECT ` + messageColumns + ` FROM chatxo.messages WHERE conversation_id=$1 AND change_seq>0 AND change_seq>$2 AND ($3::timestamptz IS NULL OR created_at>$3) ORDER BY change_seq LIMIT $4`
+	}
+	rows, err := tx.Query(ctx, query, conv, boundary, cutoff, limit+1)
 	if err != nil {
 		return History{}, err
 	}
@@ -523,6 +552,21 @@ func (s *Store) History(ctx context.Context, p identity.Principal, conv string, 
 	if err != nil {
 		return History{}, err
 	}
+	h.HasMore = len(h.Messages) > limit
+	if h.HasMore {
+		h.Messages = h.Messages[:limit]
+	}
+	h.NextChange = h.EventCursor
+	if options.ChangesAfter != nil && h.HasMore {
+		if err = tx.QueryRow(ctx, `SELECT change_seq FROM chatxo.messages WHERE id=$1`, h.Messages[len(h.Messages)-1].ID).Scan(&h.NextChange); err != nil {
+			return History{}, err
+		}
+	}
+	if descending {
+		for left, right := 0, len(h.Messages)-1; left < right; left, right = left+1, right-1 {
+			h.Messages[left], h.Messages[right] = h.Messages[right], h.Messages[left]
+		}
+	}
 	return h, tx.Commit(ctx)
 }
 
@@ -530,6 +574,11 @@ func (s *Store) emit(ctx context.Context, tx pgx.Tx, conv string, messageID *str
 	var seq int64
 	if err := tx.QueryRow(ctx, `UPDATE chatxo.storage SET event_seq=event_seq+1 WHERE singleton RETURNING event_seq`).Scan(&seq); err != nil {
 		return err
+	}
+	if messageID != nil && (kind == "message.updated" || kind == "message.deleted") {
+		if _, err := tx.Exec(ctx, `UPDATE chatxo.messages SET change_seq=$2 WHERE id=$1`, *messageID, seq); err != nil {
+			return err
+		}
 	}
 	payload, err := json.Marshal(Event{ID: seq, Type: kind, ConversationID: conv, Data: data})
 	if err != nil {

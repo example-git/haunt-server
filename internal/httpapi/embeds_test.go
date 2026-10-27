@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/example-git/haunt-server/internal/chat"
 	"github.com/example-git/haunt-server/internal/embeds"
@@ -28,6 +31,25 @@ func (*previewFixture) Image(context.Context, string) (embeds.Asset, error) {
 	return embeds.Asset{Type: "image/png", Data: []byte("fixture-image")}, nil
 }
 func (*previewFixture) Close() {}
+
+func TestEmbedsClientPostsKeepOtherLinkIndexes(t *testing.T) {
+	f, features := featureFixture(t, 256_000_000)
+	preview := &previewFixture{}
+	features.Previews.Close()
+	features.Previews = preview
+	channel := textChannel(t, f)
+	m := sendMessage(t, f, f.owner.Token, channel.ID, "https://bsky.app/profile/author.bsky.social/post/3video https://preview.example.com/article https://www.tiktok.com/@author/video/123")
+	path := "/api/v1/conversations/" + channel.ID + "/messages/" + m.ID + "/embeds"
+	var response embedsResponse
+	f.call(t, "GET", path+"?client_posts=true", f.owner.Token, nil, 200, &response)
+	if preview.calls.Load() != 1 || len(response.Embeds) != 1 || response.Embeds[0].Index != 1 {
+		t.Fatal("client posts fetched on server or other link index changed", preview.calls.Load(), response)
+	}
+	f.call(t, "GET", path, f.owner.Token, nil, 200, &response)
+	if preview.calls.Load() != 4 || len(response.Embeds) != 3 {
+		t.Fatal("legacy preview behavior changed", preview.calls.Load(), response)
+	}
+}
 
 func TestEmbedsAuthorizationAndCurrentMessage(t *testing.T) {
 	f, features := featureFixture(t, 256_000_000)
@@ -147,8 +169,51 @@ func TestEmbedsBusyAndUnavailable(t *testing.T) {
 	features.Previews = &previewFixture{page: func(context.Context, string) (embeds.Preview, error) { return embeds.Preview{}, embeds.ErrUnavailable }}
 	var response embedsResponse
 	f.call(t, "GET", path, f.owner.Token, nil, 200, &response)
-	if len(response.Embeds) != 0 {
+	if len(response.Embeds) != 1 || response.Embeds[0].Status != "unavailable" {
 		t.Fatal(response)
 	}
 	f.call(t, "GET", "/api/v1/attachments/"+identity.NewID()+"/metadata", f.owner.Token, nil, 404, nil)
+}
+
+func (p *previewFixture) Video(ctx context.Context, raw, byteRange string) (*http.Response, error) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", raw, nil).WithContext(ctx)
+	request.Header.Set("Range", byteRange)
+	recorder.Header().Set("Content-Type", "video/mp4")
+	http.ServeContent(recorder, request, "video.mp4", time.Time{}, bytes.NewReader([]byte("0123456789")))
+	return recorder.Result(), nil
+}
+func TestEmbedVideoTicketRangesAndRevocation(t *testing.T) {
+	f, features := featureFixture(t, 256_000_000)
+	c := textChannel(t, f)
+	alice := f.register(t, "video_viewer")
+	m := sendMessage(t, f, f.owner.Token, c.ID, "https://x.com/person/status/123")
+	features.Previews.Close()
+	features.Previews = &previewFixture{page: func(_ context.Context, raw string) (embeds.Preview, error) {
+		return embeds.Preview{URL: raw, Kind: "post", Media: []embeds.Media{{Kind: "video", URL: "https://video.twimg.com/movie.mp4"}}}, nil
+	}}
+	path := "/api/v1/conversations/" + c.ID + "/messages/" + m.ID + "/embeds"
+	var ticket embedTicketResponse
+	f.call(t, "GET", path+"/video-ticket?index=0&asset=0", alice.Token, nil, 200, &ticket)
+	if ticket.Ticket == "" || ticket.Ticket == alice.Token {
+		t.Fatal("invalid media ticket")
+	}
+	req, _ := http.NewRequest("GET", f.server.URL+path+"/video?ticket="+ticket.Ticket, nil)
+	req.Header.Set("Range", "bytes=2-5")
+	response, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != 206 || string(body) != "2345" || response.Header.Get("Content-Range") != "bytes 2-5/10" {
+		t.Fatal(response.StatusCode, string(body), response.Header)
+	}
+	f.call(t, "DELETE", "/api/v1/sessions/"+alice.Session.ID, alice.Token, nil, 204, nil)
+	f.call(t, "GET", path+"/video?ticket="+ticket.Ticket, "", nil, 401, nil)
+	f.call(t, "GET", path+"/video?ticket=unknown", "", nil, 401, nil)
+	f.call(t, "GET", path+"/video-ticket?index=0&asset=1", f.owner.Token, nil, 404, nil)
+	f.call(t, "GET", path+"/video-ticket?index=0&asset=0", f.owner.Token, nil, 200, &ticket)
+	f.call(t, "PUT", "/api/v1/conversations/"+c.ID+"/messages/"+m.ID, f.owner.Token, map[string]any{"body": "changed"}, 200, nil)
+	f.call(t, "GET", path+"/video?ticket="+ticket.Ticket, "", nil, 409, nil)
 }

@@ -7,6 +7,10 @@ import (
 	"bytes"
 	"container/list"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -15,6 +19,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -29,20 +34,31 @@ const maxHTML = 1 << 20
 const maxCache = 32 << 20
 
 type Preview struct {
-	Index       int    `json:"index"`
-	URL         string `json:"url"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	SiteName    string `json:"site_name,omitempty"`
-	Kind        string `json:"kind"`
-	Image       bool   `json:"image"`
-	ImageAlt    string `json:"image_alt,omitempty"`
-	YouTubeID   string `json:"youtube_id,omitempty"`
-	Author      string `json:"author_name,omitempty"`
-	PublishedAt string `json:"published_at,omitempty"`
-	ThemeColor  string `json:"theme_color,omitempty"`
-	ImageURL    string `json:"-"`
-	Asset       *Asset `json:"-"`
+	Provider     string  `json:"provider,omitempty"`
+	AuthorHandle string  `json:"author_handle,omitempty"`
+	Avatar       bool    `json:"avatar,omitempty"`
+	AvatarURL    string  `json:"-"`
+	Media        []Media `json:"media,omitempty"`
+	Status       string  `json:"status,omitempty"`
+	Index        int     `json:"index"`
+	URL          string  `json:"url"`
+	Title        string  `json:"title,omitempty"`
+	Description  string  `json:"description,omitempty"`
+	SiteName     string  `json:"site_name,omitempty"`
+	Kind         string  `json:"kind"`
+	Image        bool    `json:"image"`
+	ImageAlt     string  `json:"image_alt,omitempty"`
+	ImageKey     string  `json:"image_key,omitempty"`
+	AvatarKey    string  `json:"avatar_key,omitempty"`
+	YouTubeID    string  `json:"youtube_id,omitempty"`
+	Player       string  `json:"player,omitempty" enum:"vimeo,streamable,twitch-video,twitch-channel,twitch-clip"`
+	PlayerID     string  `json:"player_id,omitempty"`
+	PlayerToken  string  `json:"player_token,omitempty"`
+	Author       string  `json:"author_name,omitempty"`
+	PublishedAt  string  `json:"published_at,omitempty"`
+	ThemeColor   string  `json:"theme_color,omitempty"`
+	ImageURL     string  `json:"-"`
+	Asset        *Asset  `json:"-"`
 }
 type Asset struct {
 	Data []byte
@@ -66,21 +82,24 @@ type flight struct {
 	value cached
 }
 type Service struct {
-	client  *http.Client
-	ctx     context.Context
-	cancel  context.CancelFunc
-	mu      sync.Mutex
-	items   map[string]*list.Element
-	order   *list.List
-	running map[string]*flight
-	bytes   int
-	wg      sync.WaitGroup
-	closed  bool
+	client      *http.Client
+	mediaClient *http.Client
+	fetchSlots  [2]chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
+	mu          sync.Mutex
+	items       map[string]*list.Element
+	order       *list.List
+	running     map[string]*flight
+	bytes       int
+	wg          sync.WaitGroup
+	closed      bool
+	cache       *pageCache
 }
 
 func New() *Service {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Service{client: safeClient(), ctx: ctx, cancel: cancel, items: map[string]*list.Element{}, order: list.New(), running: map[string]*flight{}}
+	return &Service{client: safeClient(), mediaClient: safeClient(), fetchSlots: [2]chan struct{}{make(chan struct{}, 8), make(chan struct{}, 8)}, ctx: ctx, cancel: cancel, items: map[string]*list.Element{}, order: list.New(), running: map[string]*flight{}}
 }
 func (s *Service) Close() {
 	s.mu.Lock()
@@ -89,6 +108,7 @@ func (s *Service) Close() {
 	s.mu.Unlock()
 	s.wg.Wait()
 	s.client.CloseIdleConnections()
+	s.mediaClient.CloseIdleConnections()
 	s.mu.Lock()
 	s.items = map[string]*list.Element{}
 	s.order.Init()
@@ -114,7 +134,14 @@ func (s *Service) load(ctx context.Context, key string, fetch func(context.Conte
 	}
 	task := s.running[key]
 	if task == nil {
-		if len(s.running) >= 8 {
+		kind := strings.HasPrefix(key, "image:")
+		pending := 0
+		for running := range s.running {
+			if strings.HasPrefix(running, "image:") == kind {
+				pending++
+			}
+		}
+		if pending >= 40 {
 			s.mu.Unlock()
 			return cached{}, ErrBusy
 		}
@@ -125,19 +152,38 @@ func (s *Service) load(ctx context.Context, key string, fetch func(context.Conte
 			defer s.wg.Done()
 			fetchCtx, cancel := context.WithTimeout(s.ctx, 6*time.Second)
 			defer cancel()
-			value := fetch(fetchCtx)
+			var value cached
+			lane := 0
+			if kind {
+				lane = 1
+			}
+			queueTimer := time.NewTimer(time.Second)
+			select {
+			case s.fetchSlots[lane] <- struct{}{}:
+				value = fetch(fetchCtx)
+				<-s.fetchSlots[lane]
+			case <-queueTimer.C:
+				value.err = ErrBusy
+			case <-fetchCtx.Done():
+				value.err = fetchCtx.Err()
+			}
+			queueTimer.Stop()
 			value.key = key
 			ttl := 15 * time.Minute
 			if value.err != nil {
 				ttl = 30 * time.Second
 			}
 			value.expiry = time.Now().Add(ttl)
-			value.size = len(value.asset.Data) + len(value.preview.AssetData()) + 8192
+			pageData, _ := json.Marshal(value.preview)
+			value.size = len(value.asset.Data) + len(value.preview.AssetData()) + len(pageData) + len(value.preview.ImageURL) + len(value.preview.AvatarURL) + 8192
+			for _, media := range value.preview.Media {
+				value.size += len(media.URL) + len(media.PosterURL)
+			}
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			delete(s.running, key)
 			task.value = value
-			if !s.closed {
+			if !s.closed && value.err != ErrBusy {
 				s.items[key] = s.order.PushFront(value)
 				s.bytes += value.size
 				for s.order.Len() > 512 || s.bytes > maxCache {
@@ -170,11 +216,47 @@ func (s *Service) Page(ctx context.Context, raw string) (Preview, error) {
 	if err != nil {
 		return Preview{}, err
 	}
-	value, err := s.load(ctx, "page:"+u.String(), func(ctx context.Context) cached {
-		preview, err := s.fetchPage(ctx, u)
+	key, post := postIdentity(u)
+	value, err := s.load(ctx, "page:"+key, func(ctx context.Context) cached {
+		if p, ok := s.cache.get(ctx, key); ok {
+			return cached{preview: p}
+		}
+		var preview Preview
+		var err error
+		if strings.HasPrefix(key, "x:") && post != nil {
+			preview, err = s.fetchX(ctx, u, post[0])
+		} else if strings.HasPrefix(key, "bluesky:") && post != nil {
+			preview, err = s.fetchBluesky(ctx, u, post[0], post[1])
+		} else {
+			preview, err = s.fetchPage(ctx, u)
+		}
+		if err == nil {
+			preview.Status = "ready"
+			s.cache.put(ctx, key, preview)
+		}
 		return cached{preview: preview, err: err}
 	})
-	return value.preview, err
+	preview := value.preview
+	preview.URL = u.String()
+	preview.ImageKey = assetKey(preview.ImageURL)
+	preview.AvatarKey = assetKey(preview.AvatarURL)
+	preview.Media = append([]Media(nil), preview.Media...)
+	for i := range preview.Media {
+		media := &preview.Media[i]
+		if media.Kind == "image" {
+			media.CacheKey = assetKey(media.URL)
+		} else {
+			media.CacheKey = assetKey(media.PosterURL)
+		}
+	}
+	return preview, err
+}
+func assetKey(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	key := sha256.Sum256([]byte(fmt.Sprintf("%d:%s", time.Now().Unix()/900, raw)))
+	return hex.EncodeToString(key[:])
 }
 func (s *Service) Image(ctx context.Context, raw string) (Asset, error) {
 	u, err := ParseURL(raw)
@@ -182,7 +264,7 @@ func (s *Service) Image(ctx context.Context, raw string) (Asset, error) {
 		return Asset{}, err
 	}
 	value, err := s.load(ctx, "image:"+u.String(), func(ctx context.Context) cached {
-		response, err := s.get(ctx, u)
+		response, err := s.getMedia(ctx, u)
 		if err != nil {
 			return cached{err: err}
 		}
@@ -193,13 +275,19 @@ func (s *Service) Image(ctx context.Context, raw string) (Asset, error) {
 	return value.asset, err
 }
 func (s *Service) get(ctx context.Context, u *url.URL) (*http.Response, error) {
+	return getWithClient(ctx, s.client, u)
+}
+func (s *Service) getMedia(ctx context.Context, u *url.URL) (*http.Response, error) {
+	return getWithClient(ctx, s.mediaClient, u)
+}
+func getWithClient(ctx context.Context, client *http.Client, u *url.URL) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, ErrUnavailable
 	}
 	req.Header.Set("User-Agent", "Haunt/0.1 (+link-preview)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,image/png,image/jpeg,image/gif,image/webp;q=0.9")
-	response, err := s.client.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
 		return nil, ErrUnavailable
 	}
@@ -210,21 +298,37 @@ func (s *Service) get(ctx context.Context, u *url.URL) (*http.Response, error) {
 	return response, nil
 }
 func (s *Service) fetchPage(ctx context.Context, u *url.URL) (Preview, error) {
-	p := Preview{URL: u.String(), Kind: "link", YouTubeID: YouTube(u.String())}
-	if p.YouTubeID != "" {
-		p.Kind = "video"
-		p.SiteName = "YouTube"
-		p.Title = "YouTube video"
-	}
+	p := playerPreview(u)
 	response, err := s.get(ctx, u)
 	if err != nil {
-		if p.YouTubeID != "" {
+		if p.YouTubeID != "" || p.Player != "" {
 			return p, nil
 		}
 		return p, err
 	}
 	defer response.Body.Close()
 	kind, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if mediaKind(kind) != "" || kind == "application/octet-stream" {
+		header := make([]byte, 512)
+		n, _ := io.ReadFull(response.Body, header)
+		actual := mediaType(header[:n])
+		if actual == "" {
+			if strings.HasPrefix(http.DetectContentType(header[:n]), "image/") {
+				asset, imageErr := readImage(io.MultiReader(bytes.NewReader(header[:n]), response.Body))
+				if imageErr != nil {
+					return p, imageErr
+				}
+				p.Kind, p.Image, p.ImageURL, p.Asset = "image", true, response.Request.URL.String(), &asset
+				return p, nil
+			}
+			return p, ErrUnavailable
+		}
+		p.Kind = mediaKind(actual)
+		p.Title = clean(path.Base(response.Request.URL.Path), 240)
+		p.SiteName = response.Request.URL.Hostname()
+		p.addMedia(p.Kind, response.Request.URL.String(), "", "", 0, 0)
+		return p, nil
+	}
 	if strings.HasPrefix(kind, "image/") {
 		asset, err := readImage(response.Body)
 		if err != nil {
@@ -237,19 +341,22 @@ func (s *Service) fetchPage(ctx context.Context, u *url.URL) (Preview, error) {
 		return p, nil
 	}
 	if kind != "text/html" && kind != "application/xhtml+xml" {
-		if p.YouTubeID != "" {
+		if p.YouTubeID != "" || p.Player != "" {
+			return p, nil
+		}
+		if kind == "application/pdf" || kind == "text/plain" {
+			p.Kind, p.Title, p.Description = "file", clean(path.Base(response.Request.URL.Path), 240), kind
 			return p, nil
 		}
 		return p, ErrUnavailable
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxHTML+1))
-	if err != nil || len(data) > maxHTML {
-		if p.YouTubeID != "" {
+	meta, title, err := readMetadata(response.Body)
+	if err != nil {
+		if p.YouTubeID != "" || p.Player != "" {
 			return p, nil
 		}
 		return p, ErrUnavailable
 	}
-	meta, title := metadata(data)
 	p.Title = first(meta["og:title"], meta["twitter:title"], title, p.Title)
 	p.Description = first(meta["og:description"], meta["twitter:description"], meta["description"])
 	p.SiteName = first(meta["og:site_name"], p.SiteName)
@@ -286,21 +393,29 @@ func readImage(r io.Reader) (Asset, error) {
 	return Asset{Data: data, Type: types[kind]}, nil
 }
 func metadata(data []byte) (map[string]string, string) {
+	values, title, _ := readMetadata(bytes.NewReader(data))
+	return values, title
+}
+func readMetadata(reader io.Reader) (map[string]string, string, error) {
 	values := map[string]string{}
 	title := ""
 	inTitle := false
-	tokens := html.NewTokenizer(bytes.NewReader(data))
+	limited := &io.LimitedReader{R: reader, N: maxHTML + 1}
+	tokens := html.NewTokenizer(limited)
 	tokens.SetMaxBuf(maxHTML)
 	for {
 		kind := tokens.Next()
 		if kind == html.ErrorToken {
+			if limited.N == 0 || tokens.Err() != io.EOF {
+				return values, title, ErrUnavailable
+			}
 			break
 		}
 		token := tokens.Token()
 		switch kind {
 		case html.StartTagToken, html.SelfClosingTagToken:
 			if token.Data == "body" {
-				return values, title
+				return values, clean(title, 240), nil
 			}
 			if token.Data == "title" {
 				inTitle = true
@@ -316,9 +431,13 @@ func metadata(data []byte) (map[string]string, string) {
 					}
 				}
 				switch key {
-				case "og:title", "twitter:title", "og:description", "twitter:description", "description", "og:site_name", "og:image:alt", "og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src", "article:author", "author", "article:published_time", "date", "datepublished", "theme-color":
+				case "og:title", "twitter:title", "og:description", "twitter:description", "description", "og:site_name", "og:image:alt", "og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src", "article:author", "author", "article:published_time", "date", "datepublished", "theme-color", "og:video", "og:video:url", "og:video:secure_url", "twitter:player:stream":
 					if values[key] == "" {
-						values[key] = clean(value, 2048)
+						if key == "og:description" || key == "twitter:description" {
+							values[key] = postText(value)
+						} else {
+							values[key] = clean(value, 2048)
+						}
 					}
 				}
 			}
@@ -327,7 +446,7 @@ func metadata(data []byte) (map[string]string, string) {
 				inTitle = false
 			}
 			if token.Data == "head" {
-				return values, title
+				return values, clean(title, 240), nil
 			}
 		case html.TextToken:
 			if inTitle {
@@ -335,7 +454,7 @@ func metadata(data []byte) (map[string]string, string) {
 			}
 		}
 	}
-	return values, clean(title, 240)
+	return values, clean(title, 240), nil
 }
 func first(values ...string) string {
 	for _, v := range values {
@@ -347,7 +466,7 @@ func first(values ...string) string {
 }
 func published(value string) string {
 	value = strings.TrimSpace(value)
-	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+	for _, layout := range []string{time.RFC3339, time.RubyDate, time.RFC1123Z, "2006-01-02"} {
 		if parsed, err := time.Parse(layout, value); err == nil {
 			return parsed.UTC().Format(time.RFC3339)
 		}

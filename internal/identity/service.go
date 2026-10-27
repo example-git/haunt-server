@@ -10,21 +10,21 @@ import (
 	"time"
 
 	"github.com/example-git/haunt-server/internal/config"
+	"github.com/example-git/haunt-server/internal/platform/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
 	runtime    atomic.Pointer[RuntimeConfiguration]
-	pool       *pgxpool.Pool
+	pool       postgres.Pool
 	instanceID string
 	passwords  *Passwords
 	sessionTTL time.Duration
 	artSlots   chan struct{}
 }
 
-func New(ctx context.Context, c config.Config, pool *pgxpool.Pool) (*Service, error) {
+func New(ctx context.Context, c config.Config, pool postgres.Pool) (*Service, error) {
 	passwords, err := NewPasswords(c.AuthParallel)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func ValidateFirstOwner(username, password string) error {
 
 // CreateFirstOwner refuses an existing owner, including a competing setup request.
 // Unlike normal startup, it must never silently accept a different password.
-func CreateFirstOwner(ctx context.Context, c config.Config, pool *pgxpool.Pool) error {
+func CreateFirstOwner(ctx context.Context, c config.Config, pool postgres.Pool) error {
 	passwords, err := NewPasswords(c.AuthParallel)
 	if err != nil {
 		return err

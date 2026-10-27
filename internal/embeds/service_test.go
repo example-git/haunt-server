@@ -118,6 +118,7 @@ func fixtureService(t *testing.T, handler http.Handler) (*Service, *atomic.Int32
 			return (&net.Dialer{}).DialContext(ctx, network, strings.TrimPrefix(server.URL, "http://"))
 		})
 	}
+	s.mediaClient.Transport = transport.Clone()
 	t.Cleanup(s.Close)
 	return s, calls
 }
@@ -248,6 +249,59 @@ func TestCacheMemoryBoundAndHTMLNeverExecutes(t *testing.T) {
 	values, title := metadata([]byte(`<title>&lt;img onerror=alert(1)&gt;</title><script><meta property="og:title" content="script"></script><meta property="og:description" content="Text only">`))
 	if title != "<img onerror=alert(1)>" || values["og:title"] != "" {
 		t.Fatal(values, title)
+	}
+}
+
+func TestMetadataQueueAndMediaConnectionIsolation(t *testing.T) {
+	entered, release := make(chan struct{}, 9), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	picture := imageBytes()
+	s, _ := fixtureService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/picture" {
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(picture)
+			return
+		}
+		entered <- struct{}{}
+		<-release
+		fmt.Fprint(w, "<title>Ready</title>")
+	}))
+	done := make(chan error, 9)
+	for i := range 8 {
+		host := "same.example.com"
+		if i >= 4 {
+			host = fmt.Sprintf("other%d.example.com", i)
+		}
+		go func() {
+			_, err := s.Page(context.Background(), fmt.Sprintf("http://%s/blocked/%d", host, i))
+			done <- err
+		}()
+	}
+	for range 8 {
+		select {
+		case <-entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("metadata did not fill provider slots")
+		}
+	}
+	go func() { _, err := s.Page(context.Background(), "http://same.example.com/queued"); done <- err }()
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	asset, err := s.Image(ctx, "http://same.example.com/picture")
+	cancel()
+	if err != nil || !bytes.Equal(asset.Data, picture) {
+		t.Fatal("media blocked behind metadata", err)
+	}
+	select {
+	case err := <-done:
+		t.Fatal("metadata queue returned before release", err)
+	default:
+	}
+	once.Do(func() { close(release) })
+	for range 9 {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

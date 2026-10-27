@@ -252,6 +252,59 @@ func TestRoleSectionUpgradePreservesRoles(t *testing.T) {
 	}
 }
 
+func TestHistoryRevisionUpgradePreservesOldEdits(t *testing.T) {
+	pool, instance := testutil.Database(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA chatxo; CREATE TABLE chatxo.schema_migrations(version integer PRIMARY KEY); INSERT INTO chatxo.schema_migrations VALUES(18)`); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := migrations.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Name() > "018_voice_moderation.sql" {
+			continue
+		}
+		raw, err := migrations.ReadFile("migrations/" + entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = pool.Exec(ctx, string(raw)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO chatxo.instances(id) VALUES($1)`, instance); err != nil {
+		t.Fatal(err)
+	}
+	var user, conversation string
+	if err := pool.QueryRow(ctx, `INSERT INTO chatxo.users(id,instance_id,username,password_hash) VALUES(gen_random_uuid(),$1,'reader','unused') RETURNING id`, instance).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO chatxo.conversations(id,instance_id,kind,last_seq) VALUES(gen_random_uuid(),$1,'dm',3) RETURNING id`, instance).Scan(&conversation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,author_id,seq,body,created_at,edited_at,deleted,request_id,request_hash,bytes)
+	SELECT gen_random_uuid(),$1,$2,n,CASE WHEN n=3 THEN '' ELSE 'retained body' END,now(),CASE WHEN n=2 THEN now() ELSE NULL END,n=3,gen_random_uuid(),decode('00','hex'),100 FROM generate_series(1,3) n`, conversation, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE chatxo.storage SET event_seq=50,event_floor=50,text_bytes=300`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := Migrate(ctx, pool, instance); err != nil {
+			t.Fatal(err)
+		}
+		var head, unchanged, changed, revisions, events int64
+		if err := pool.QueryRow(ctx, `SELECT event_seq,(SELECT change_seq FROM chatxo.messages WHERE seq=1),(SELECT count(*) FROM chatxo.messages WHERE seq>1 AND change_seq>50),(SELECT count(DISTINCT change_seq) FROM chatxo.messages WHERE change_seq>0),(SELECT count(*) FROM chatxo.events) FROM chatxo.storage`).Scan(&head, &unchanged, &changed, &revisions, &events); err != nil {
+			t.Fatal(err)
+		}
+		if head != 52 || unchanged != 0 || changed != 2 || revisions != 2 || events != 0 {
+			t.Fatalf("upgrade revisions head=%d unchanged=%d changed=%d unique=%d replay=%d", head, unchanged, changed, revisions, events)
+		}
+	}
+}
+
 func TestVoiceModerationPermissionUpgradeRunsOnce(t *testing.T) {
 	pool, instance := testutil.Database(t)
 	ctx := context.Background()

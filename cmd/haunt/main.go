@@ -74,7 +74,12 @@ func run(logger *slog.Logger) error {
 	if err := postgres.Migrate(startupCtx, database, cfg.InstanceID); err != nil {
 		return fmt.Errorf("database migration: %w", err)
 	}
-	identities, err := identity.New(startupCtx, cfg, database)
+	pools, err := postgres.OpenWorkloads(startupCtx, database, cfg)
+	if err != nil {
+		return err
+	}
+	defer pools.Close()
+	identities, err := identity.New(startupCtx, cfg, pools)
 	if err != nil {
 		return fmt.Errorf("identity startup: %w", err)
 	}
@@ -98,7 +103,7 @@ func run(logger *slog.Logger) error {
 	if err := identities.Cleanup(startupCtx); err != nil {
 		return fmt.Errorf("identity cleanup: %w", err)
 	}
-	features, err := httpapi.NewFeatures(startupCtx, cfg, database, identities, logger)
+	features, err := httpapi.NewFeatures(startupCtx, cfg, pools, identities, logger)
 	if err != nil {
 		return fmt.Errorf("feature startup: %w", err)
 	}
@@ -110,7 +115,7 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 	cancelStartup()
-	maintenanceCtx, cancelMaintenance := context.WithCancel(context.Background())
+	maintenanceCtx, cancelMaintenance := context.WithCancel(postgres.WithWorkload(context.Background(), config.Maintenance))
 	maintenanceDone := make(chan struct{})
 	go func() {
 		defer close(maintenanceDone)
