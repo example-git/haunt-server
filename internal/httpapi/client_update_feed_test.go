@@ -52,10 +52,16 @@ func TestPublicHubClientUpdateRoutes(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
 	http.DefaultTransport = updateFeedTransport(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != manifest || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 			t.Fatal("Unexpected upstream request", r.URL)
 		}
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(data)))}, nil
+		if r.Method == http.MethodGet && r.URL.String() == manifest {
+			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(data)))}, nil
+		}
+		if r.Method != http.MethodHead || r.URL.String() != "https://github.com/example-git/haunt/releases/download/v0.2.0/linux-x64.rpm" {
+			t.Fatal("Unexpected artifact request", r.Method, r.URL)
+		}
+		return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": {"https://release-assets.githubusercontent.com/fixture/linux-x64.rpm?token=fixture"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
 	})
 	mux := http.NewServeMux()
 	configuration := config.Config{PublicURL: "https://community.example.test", ClientUpdateInstallers: true, ClientUpdateManifestURL: manifest}
@@ -84,10 +90,53 @@ func TestPublicHubClientUpdateRoutes(t *testing.T) {
 				}
 			}
 		default:
-			if response.Code != http.StatusFound || response.Header().Get("Location") != "https://github.com/example-git/haunt/releases/download/v0.2.0/linux-x64.rpm" {
+			if response.Code != http.StatusFound || response.Header().Get("Location") != "https://release-assets.githubusercontent.com/fixture/linux-x64.rpm?token=fixture" || response.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal(response.Code, response.Header())
 			}
 		}
+	}
+}
+
+func TestPublicGitHubArtifactRedirects(t *testing.T) {
+	for _, test := range []struct {
+		name, destination string
+		status            int
+	}{
+		{"official", "https://objects.githubusercontent.com/fixture/asset?token=fixture", http.StatusFound},
+		{"untrusted", "https://tracker.example.test/asset", http.StatusBadGateway},
+		{"insecure", "http://release-assets.githubusercontent.com/asset", http.StatusBadGateway},
+		{"credentials", "https://user:password@release-assets.githubusercontent.com/asset", http.StatusBadGateway},
+		{"port", "https://release-assets.githubusercontent.com:444/asset", http.StatusBadGateway},
+		{"loop", "https://github.com/example-git/haunt-client/releases/download/client-v0.2.0/linux-x64.rpm", http.StatusBadGateway},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			feed := newPublicUpdateFeed("https://github.com/example-git/haunt-client/releases/latest/download/haunt-updates.json")
+			requests := 0
+			feed.client.Transport = updateFeedTransport(func(r *http.Request) (*http.Response, error) {
+				requests++
+				if r.Method != http.MethodHead || r.URL.String() != "https://github.com/example-git/haunt-client/releases/download/client-v0.2.0/linux-x64.rpm" || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+					t.Fatal("Unexpected upstream request", r.Method, r.URL)
+				}
+				return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": {test.destination}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+			})
+			req := httptest.NewRequest("GET", "/api/v1/client-updates/client-v0.2.0/linux-x64.rpm", nil)
+			req.SetPathValue("version", "client-v0.2.0")
+			req.SetPathValue("name", "linux-x64.rpm")
+			req.Header.Set("Authorization", "Bearer private-session")
+			req.Header.Set("Cookie", "private=cookie")
+			response := httptest.NewRecorder()
+			feed.redirect(response, req)
+			if response.Code != test.status || requests > 5 {
+				t.Fatal(response.Code, requests, response.Body.String())
+			}
+			if test.status == http.StatusFound {
+				if response.Header().Get("Location") != test.destination {
+					t.Fatal(response.Header())
+				}
+			} else if response.Header().Get("Location") != "" {
+				t.Fatal("Untrusted redirect was exposed", response.Header())
+			}
+		})
 	}
 }
 
