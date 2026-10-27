@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: example-git/haunt-sync
-          ref: fa017bdbbea82bbd0bd31259f208257f763c97fc
+          ref: 35c9df602b1b61c6722f337fa451cfd7e9d5786c
           path: sync
       - uses: actions/setup-go@v6
         with:
@@ -91,6 +91,17 @@ jobs:
           mkdir -p test-results
           go test -race -ldflags="-X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=$HAUNT_WEB_CLIENT_ORIGIN" -p 2 -count=1 -timeout=8m -json ./... | tee test-results/server.jsonl
           python3 scripts/check-test-results.py test-results/server.jsonl
+      - name: Check million-message history and mixed workload capacity
+        env:
+          HAUNT_SCALE_TEST: '1'
+          HAUNT_SCALE_LATEST: '1'
+          HAUNT_SCALE_CLIENT_DIR: ${{ github.workspace }}/client
+          HAUNT_SCALE_REPORT: ${{ github.workspace }}/test-results/history-scale.json
+        run: go test -race ./internal/httpapi -run '^TestHistoryScale$' -count=1 -timeout=15m -v
+      - name: Check live social provider metadata and media
+        env:
+          HAUNT_LIVE_EMBEDS: '1'
+        run: go test -race ./internal/embeds -run '^TestLiveSocialProviders$' -count=1 -timeout=90s -v
       - name: Check real browser workflows
         working-directory: client
         run: npm run test:browser
