@@ -68,8 +68,8 @@ jobs:
           test "$(docker inspect chatxo-identity-check --format '{{.Config.Image}}')" = postgres:16-alpine
           test "$(docker port chatxo-identity-check 5432/tcp)" = 127.0.0.1:32768
           for _ in $(seq 1 60); do
-            if docker exec chatxo-identity-check pg_isready -U postgres -d chatxo_check; then
-              docker exec chatxo-identity-check createdb -U postgres haunt_sync_iteration
+            if docker exec chatxo-identity-check pg_isready -h 127.0.0.1 -U postgres -d chatxo_check; then
+              docker exec chatxo-identity-check createdb -h 127.0.0.1 -U postgres haunt_sync_iteration
               exit 0
             fi
             sleep 1
