@@ -160,6 +160,13 @@ func TestMuteGapRecovery(t *testing.T) {
 						if err := pc.SetRemoteDescription(answer); err != nil {
 							t.Fatal(err)
 						}
+						for pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+							select {
+							case <-time.After(10 * time.Millisecond):
+							case <-ctx.Done():
+								t.Fatalf("subscriber connection did not complete: %s: %v", pc.ConnectionState(), ctx.Err())
+							}
+						}
 						return packets
 					}
 					existing := subscribe("existing")
