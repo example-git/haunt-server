@@ -1,11 +1,9 @@
 name: All-in-one container verification
 on:
-  push:
-    tags: ['server-v*']
   workflow_dispatch:
     inputs:
       version:
-        description: 'Image version (defaults to the pinned client version)'
+        description: "Image version (defaults to the pinned client version)"
         required: false
         type: string
 permissions:
@@ -79,7 +77,7 @@ jobs:
           mkdir -p release
           docker save haunt:check | gzip > release/haunt-linux-${{ matrix.arch }}.docker.tar.gz
           cd release
-          sha256sum *.docker.tar.gz > SHA256SUMS
+          sha256sum -- *.docker.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: haunt-container-linux-${{ matrix.arch }}

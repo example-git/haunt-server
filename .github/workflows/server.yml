@@ -1,7 +1,5 @@
 name: Server with embedded web client
 on:
-  push:
-    tags: ['server-v*']
   workflow_dispatch:
 permissions:
   contents: write
@@ -73,15 +71,6 @@ jobs:
           python3 scripts/package-container-app.py "$version"
           cd release
           sha256sum haunt-server-* haunt-app-* haunt-app.json > SHA256SUMS
-      - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/server-v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes --draft
-          gh release upload "$RELEASE_TAG" release/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
       - uses: actions/upload-artifact@v4
         with:
           name: haunt-server

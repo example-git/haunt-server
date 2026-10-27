@@ -220,14 +220,13 @@ platforms from one host when its ARM emulation is configured:
 docker buildx build --platform linux/amd64,linux/arm64 -t YOUR_REGISTRY/haunt:VERSION --push .
 ```
 
-The hub's `Publish coordinated container` GitHub workflow builds and checks each architecture on
+The hub's `Hub stable release` GitHub workflow builds and checks each architecture on
 its native Linux runner, using the exact pinned public client commit. After both
 complete bundle tests pass, it publishes the tested images
 to `ghcr.io/example-git/haunt`. The version tag and `latest` include Linux amd64
 and arm64. Each image records the server revision, client revision and version
-in its OCI labels. Manual builds default to the pinned client version; tagged
-server builds use the server tag. An explicit workflow version must be
-`major.minor.patch`.
+in its OCI labels. The hub owns the release version and exact component revisions.
+The component's manual container workflow verifies images without publishing them.
 
 To use the published image, set `HAUNT_IMAGE=ghcr.io/example-git/haunt:latest`
 (or a specific version) in `.env`, authenticate to GHCR if the package is
