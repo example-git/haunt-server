@@ -21,6 +21,8 @@ credentials reach clients and update files are separate from message storage.
 
 GitHub download links follow the hub's `vX.Y.Z` tags or the legacy client's
 `client-vX.Y.Z` tags. Hub deployments select the exact published release manifest.
+Artifact requests resolve to GitHub's approved release-asset CDN hosts. File bytes
+travel directly from the CDN to the client; session credentials stay on the server.
 
 Use `scripts/install-client-release.py --directory <data>/client-updates
 --public-key /protected/update-public.pem` with a release tar.gz on stdin.

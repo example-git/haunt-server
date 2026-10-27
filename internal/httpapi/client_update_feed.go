@@ -123,11 +123,54 @@ func (f *publicUpdateFeed) installers(enabled bool) http.HandlerFunc {
 	}
 }
 
+func (f *publicUpdateFeed) resolveArtifact(ctx context.Context, raw string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, raw, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Haunt-Public-Updates")
+	var destination string
+	client := *f.client
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 || req.URL.Scheme != "https" || req.URL.User != nil || req.URL.Port() != "" {
+			return errors.New("invalid public artifact redirect")
+		}
+		switch req.URL.Hostname() {
+		case "release-assets.githubusercontent.com", "objects.githubusercontent.com", "github-releases.githubusercontent.com":
+			destination = req.URL.String()
+			return http.ErrUseLastResponse
+		case "github.com":
+			return nil
+		default:
+			return errors.New("untrusted public artifact host")
+		}
+	}
+	response, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if destination == "" {
+		return "", errors.New("public artifact redirect unavailable")
+	}
+	return destination, nil
+}
+
 func (f *publicUpdateFeed) redirect(w http.ResponseWriter, r *http.Request) {
 	version, filename := strings.TrimPrefix(r.PathValue("version"), "client-v"), r.PathValue("name")
 	if !releaseVersion.MatchString(version) || !releaseFilename.MatchString(filename) {
 		writeJSON(w, 404, errorResponse{Error: "client_update_unavailable"})
 		return
 	}
-	http.Redirect(w, r, publicUpdateURL(f.url, version, filename), http.StatusFound)
+	location := publicUpdateURL(f.url, version, filename)
+	if githubUpdateFeed(f.url) {
+		var err error
+		location, err = f.resolveArtifact(r.Context(), location)
+		if err != nil {
+			writeJSON(w, 502, errorResponse{Error: "client_update_unavailable"})
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	http.Redirect(w, r, location, http.StatusFound)
 }
