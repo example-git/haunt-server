@@ -18,14 +18,20 @@ func githubUpdateFeed(raw string) bool {
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	return len(parts) == 6 && parts[2] == "releases" && parts[5] == "haunt-updates.json" &&
 		((parts[3] == "latest" && parts[4] == "download") ||
-			(parts[3] == "download" && strings.HasPrefix(parts[4], "client-v")))
+			(parts[3] == "download" && (strings.HasPrefix(parts[4], "client-v") ||
+				strings.HasPrefix(parts[4], "v") && releaseVersion.MatchString(strings.TrimPrefix(parts[4], "v")))))
 }
 
 func publicUpdateURL(manifest, version, filename string) string {
 	u, _ := url.Parse(manifest)
 	if githubUpdateFeed(manifest) {
 		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		u.Path = "/" + parts[0] + "/" + parts[1] + "/releases/download/client-v" + version + "/" + filename
+		prefix := "client-v"
+		if parts[3] == "download" && strings.HasPrefix(parts[4], "v") ||
+			parts[3] == "latest" && strings.EqualFold(parts[0]+"/"+parts[1], "example-git/haunt") {
+			prefix = "v"
+		}
+		u.Path = "/" + parts[0] + "/" + parts[1] + "/releases/download/" + prefix + version + "/" + filename
 	} else {
 		u.Path = path.Join(path.Dir(u.Path), "client-v"+version, filename)
 	}
