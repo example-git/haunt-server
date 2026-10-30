@@ -223,6 +223,7 @@ func TestLiveSocialProviders(t *testing.T) {
 		}
 	}
 
+	images := map[string]int{}
 	for _, raw := range urls {
 		t.Run(raw, func(t *testing.T) {
 			p, err := s.Page(ctx, raw)
@@ -235,10 +236,25 @@ func TestLiveSocialProviders(t *testing.T) {
 			}
 			for _, m := range p.Media {
 				if m.Kind == "image" {
+					imageURL, err := ParseURL(m.URL)
+					if err != nil {
+						t.Fatal("image URL", err)
+					}
 					asset, err := s.Image(ctx, m.URL)
+					if imageURL.Hostname() == "pbs.twimg.com" && imageURL.Query().Get("name") == "orig" && int64(m.Width)*int64(m.Height) > 16_000_000 {
+						if err != ErrUnavailable || len(asset.Data) != 0 {
+							t.Fatalf("oversized image was not rejected: %dx%d, error=%v", m.Width, m.Height, err)
+						}
+						t.Logf("rejected image exceeding pixel limit: %dx%d", m.Width, m.Height)
+						query := imageURL.Query()
+						query.Set("name", "small")
+						imageURL.RawQuery = query.Encode()
+						asset, err = s.Image(ctx, imageURL.String())
+					}
 					if err != nil {
 						t.Fatal("image", err)
 					}
+					images[p.Provider]++
 					t.Logf("image type=%s bytes=%d", asset.Type, len(asset.Data))
 				} else {
 					response, err := s.Video(ctx, m.URL, "bytes=0-65535")
@@ -254,5 +270,10 @@ func TestLiveSocialProviders(t *testing.T) {
 				}
 			}
 		})
+	}
+	for _, provider := range []string{"x", "bluesky"} {
+		if images[provider] == 0 {
+			t.Errorf("no supported %s image was fetched", provider)
+		}
 	}
 }
