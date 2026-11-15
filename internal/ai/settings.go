@@ -18,6 +18,13 @@ func validInstructions(v string) bool {
 	return utf8.ValidString(v) && len(v) <= 32768 && !strings.ContainsRune(v, 0)
 }
 func (s *Service) ensureSettings(ctx context.Context, tx pgx.Tx, id string) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chatxo.ai_channel_settings WHERE channel_id=$1)`, id).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
 	policy, err := s.chat.PolicyForTransaction(ctx, tx)
 	if err != nil {
 		return err

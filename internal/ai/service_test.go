@@ -303,6 +303,46 @@ func TestOAuthStateOriginSingleUse(t *testing.T) {
 		t.Fatal("completed setup reused")
 	}
 }
+func TestAIReadsDoNotNotifyDirectory(t *testing.T) {
+	f := fixture(t, 2<<20)
+	ctx := context.Background()
+	listener, err := f.s.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Release()
+	if _, err = listener.Exec(ctx, `LISTEN chatxo_gateway`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err = f.s.Settings(ctx, f.p, f.channel.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.s.Usage(ctx, f.p, f.channel.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wait, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	notification, err := listener.Conn().WaitForNotification(wait)
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("AI reads emitted a gateway notification: notification=%+v error=%v", notification, err)
+	}
+	channel, err := f.ids.SaveChannel(ctx, f.p, "", "new-assistant", "ai", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.s.Settings(ctx, f.p, channel.ID); err != nil {
+		t.Fatal(err)
+	}
+	wait, cancel = context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	notification, err = listener.Conn().WaitForNotification(wait)
+	if err != nil || notification.Payload != "directory" {
+		t.Fatalf("new channel did not notify directory: notification=%+v error=%v", notification, err)
+	}
+}
+
 func TestRepeatedRetentionAndActiveReservation(t *testing.T) {
 	f := fixture(t, 64<<10)
 	ctx := context.Background()

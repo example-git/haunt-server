@@ -1,0 +1,54 @@
+name: AI read notification regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - internal/ai/settings.go
+      - .github/workflows/ai-read-regression.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      HAUNT_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:32768/chatxo_check?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Start isolated database
+        run: |
+          docker run -d --name chatxo-identity-check -p 127.0.0.1:32768:5432 -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=chatxo_check postgres:16-alpine
+          for attempt in $(seq 1 60); do
+            if docker exec chatxo-identity-check pg_isready -U postgres -d chatxo_check; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Reproduce released read notifications
+        run: |
+          mkdir -p test-results
+          cp internal/ai/settings.go "$RUNNER_TEMP/settings-fixed.go"
+          git show e4daf962f67d74dc3965ed1d400d13cc432ad78d:internal/ai/settings.go > internal/ai/settings.go
+          set +e
+          go test ./internal/ai -run '^TestAIReadsDoNotNotifyDirectory$' -count=1 -v -timeout=60s > test-results/before.txt 2>&1
+          result=$?
+          set -e
+          cp "$RUNNER_TEMP/settings-fixed.go" internal/ai/settings.go
+          cat test-results/before.txt
+          test "$result" -ne 0
+          grep -q 'AI reads emitted a gateway notification' test-results/before.txt
+      - name: Verify fixed reads and initialization
+        run: go test -race ./internal/ai -run '^TestAIReadsDoNotNotifyDirectory$' -count=1 -v -timeout=60s | tee test-results/after.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-read-notifications
+          path: test-results/
+      - name: Remove isolated database
+        if: always()
+        run: docker rm -f -v chatxo-identity-check
