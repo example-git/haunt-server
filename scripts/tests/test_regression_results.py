@@ -34,6 +34,13 @@ class RegressionResultTests(unittest.TestCase):
         self.check([{'Action': 'pass', 'Package': 'httpapi', 'Test': 'TestDatabase'},
                     {'Action': 'skip', 'Package': 'github.com/example-git/haunt-server/internal/clienttest', 'Test': 'TestClients'}])
 
+    def test_optional_live_tools_do_not_make_fixture_tests_optional(self):
+        passed = {'Action': 'pass', 'Package': 'httpapi', 'Test': 'TestDatabase'}
+        package = 'github.com/example-git/haunt-server/internal/ai/tools'
+        self.check([passed, {'Action': 'skip', 'Package': package, 'Test': 'TestLivePublicTools'}])
+        with self.assertRaisesRegex(ValueError, 'Required test skipped'):
+            self.check([passed, {'Action': 'skip', 'Package': package, 'Test': 'TestReadURL'}])
+
 
 if __name__ == '__main__':
     unittest.main()

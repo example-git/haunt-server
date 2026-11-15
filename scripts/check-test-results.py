@@ -6,12 +6,13 @@ from pathlib import Path
 
 
 def check(path):
-    # These entry points run explicitly in subsequent browser/standalone steps.
+    # Separate integration entry points and opt-in external-provider checks.
     allowed = {
         ("github.com/example-git/haunt-server/internal/clienttest", "TestClients"),
         ("github.com/example-git/haunt-server/cmd/haunt", "TestFirstRunBinary"),
         ("github.com/example-git/haunt-server/internal/httpapi", "TestHistoryScale"),
         ("github.com/example-git/haunt-server/internal/embeds", "TestLiveSocialProviders"),
+        ("github.com/example-git/haunt-server/internal/ai/tools", "TestLivePublicTools"),
     }
     passed = 0
     for line in Path(path).read_text().splitlines():
