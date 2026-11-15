@@ -13,6 +13,7 @@ import (
 	"github.com/example-git/haunt-server/internal/platform/postgres"
 	"github.com/example-git/haunt-server/internal/testutil"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"image"
 	"image/color"
 	"image/png"
@@ -306,7 +307,7 @@ func TestOAuthStateOriginSingleUse(t *testing.T) {
 func TestAIReadsDoNotNotifyDirectory(t *testing.T) {
 	f := fixture(t, 2<<20)
 	ctx := context.Background()
-	listener, err := f.s.pool.Acquire(ctx)
+	listener, err := f.s.pool.(*pgxpool.Pool).Acquire(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
