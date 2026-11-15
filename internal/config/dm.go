@@ -19,6 +19,12 @@ func DefaultDMPolicy() DMPolicy {
 	return DMPolicy{Version: 1, ImagesEnabled: true, ImageMaxBytes: 2 << 20, UserStorageBytes: 100 << 20, StorageBytes: 1 << 30, TextMaxBytes: 256 << 20, UploadBytesPerDay: 100 << 20, DownloadBytesPerDay: 1 << 30}
 }
 func (p Policy) WithDefaults() Policy {
+	if p.AIChannelMaxBytes == 0 {
+		p.AIChannelMaxBytes = 64 << 20
+	}
+	if p.AITextMaxBytes == 0 {
+		p.AITextMaxBytes = 128 << 20
+	}
 	if p.DM.Version == 0 {
 		p.DM = DefaultDMPolicy()
 	}

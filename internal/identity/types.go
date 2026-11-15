@@ -45,8 +45,10 @@ const (
 	Administrator
 	MuteMembers
 	DeafenMembers
-	AllPermissions     int64 = (1 << 18) - 1
-	ChannelPermissions       = ViewChannel | SendMessages | ConnectVoice
+	UseAI
+	SwitchAIPreset
+	AllPermissions     int64 = (1 << 20) - 1
+	ChannelPermissions       = ViewChannel | SendMessages | ConnectVoice | UseAI | SwitchAIPreset
 )
 
 type User struct {

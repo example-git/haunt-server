@@ -8,9 +8,13 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | --- | --- | --- | --- | --- |
 | DELETE | `/api/v1/admin/audio-plugins/{id}` | Remove an audio plugin (ManageConfiguration) | Bearer | 204 |
 | DELETE | `/api/v1/admin/storage/{id}` | Remove an inactive provider with no retained files (ManageConfiguration) | Bearer | 204 |
+| DELETE | `/api/v1/ai/accounts/{account}` | Disconnect an AI account (ManageConfiguration) | Bearer | 204 |
 | DELETE | `/api/v1/attachments/{id}` | Delete an owned attachment | Bearer | 204 |
 | DELETE | `/api/v1/categories/{id}` | Delete a Category | Bearer | 204 |
 | DELETE | `/api/v1/channels/{id}` | Delete a Channel | Bearer | 204 |
+| DELETE | `/api/v1/channels/{id}/ai/avatar` | Remove an AI avatar (ManageChannels) | Bearer | 204 |
+| DELETE | `/api/v1/channels/{id}/ai/presets/{preset}` | Remove an AI persona (ManageChannels) | Bearer | 204 |
+| DELETE | `/api/v1/channels/{id}/ai/presets/{preset}/avatar` | Remove an AI avatar (ManageChannels) | Bearer | 204 |
 | DELETE | `/api/v1/conversations/{id}/messages/{message}` | Tombstone an authored message | Bearer | 200 |
 | DELETE | `/api/v1/emojis/{id}` | Delete a custom emoji (ManageServer) | Bearer | 204 |
 | DELETE | `/api/v1/instance/banner` | Remove banner; icons/banners require ManageServer | Bearer | 204 |
@@ -26,6 +30,9 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | GET | `/api/v1/admin/server-extensions/{id}` | Read server extension configuration and credential status (ManageConfiguration or Administrator) | Bearer | 200 |
 | GET | `/api/v1/admin/stats` | Inspect storage, pool, queue and media metrics (requires the corresponding server permission) | Bearer | 200 |
 | GET | `/api/v1/admin/storage` | List attachment storage providers; credentials are never returned (ManageConfiguration) | Bearer | 200 |
+| GET | `/api/v1/ai/accounts` | List AI connection status without credentials | Bearer | 200 |
+| GET | `/api/v1/ai/accounts/{account}/models` | List models for a configured AI account | Bearer | 200 |
+| GET | `/api/v1/ai/providers` | List native AI integrations and model catalogs | Bearer | 200 |
 | GET | `/api/v1/attachments/{id}` | Download an authorized attachment; supports Range and HEAD | Bearer | 200 |
 | GET | `/api/v1/attachments/{id}/metadata` | Get filename, size and detected content type for an authorized attachment | Bearer | 200 |
 | GET | `/api/v1/audio-plugins` | List local audio plugins and integrity hashes | Bearer | 200 |
@@ -34,6 +41,12 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | GET | `/api/v1/categories/{id}/permissions` | Get permission overrides | Bearer | 200 |
 | GET | `/api/v1/channels` | List visible channels | Bearer | 200 |
 | GET | `/api/v1/channels/{id}` | Get a channel and effective permissions | Bearer | 200 |
+| GET | `/api/v1/channels/{id}/ai` | Read AI channel settings | Bearer | 200 |
+| GET | `/api/v1/channels/{id}/ai/avatar` | Read an authorized AI avatar | Bearer | 200 |
+| GET | `/api/v1/channels/{id}/ai/presets` | List mentionable AI personas | Bearer | 200 |
+| GET | `/api/v1/channels/{id}/ai/presets/{preset}/avatar` | Read an authorized AI avatar | Bearer | 200 |
+| GET | `/api/v1/channels/{id}/ai/turns` | Read authoritative AI turn status after reconnect | Bearer | 200 |
+| GET | `/api/v1/channels/{id}/ai/usage` | Read AI storage usage and authoritative pruning boundary | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/menu` | Permission-filtered declarative channel settings and context menu | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/permissions` | Get permission overrides | Bearer | 200 |
 | GET | `/api/v1/client-updates/haunt-updates.json` | Get the signed desktop update manifest | Public feed / Bearer local | 200 |
@@ -87,13 +100,18 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | POST | `/api/v1/admin/server-extensions/{id}/test` | Test saved provider credentials with live speech, even while disabled (ManageConfiguration or Administrator) | Bearer | 200 |
 | POST | `/api/v1/admin/storage` | Verify write/read/delete access and register private attachment storage (ManageConfiguration) | Bearer | 201 |
 | POST | `/api/v1/admin/storage/{id}/check` | Verify provider write/read/delete access (ManageConfiguration) | Bearer | 204 |
+| POST | `/api/v1/ai/oauth/start` | Prepare a single-use provider OAuth connection (ManageConfiguration) | Bearer | 200 |
+| POST | `/api/v1/ai/oauth/{session}/complete` | Exchange an OAuth code and encrypt account credentials (ManageConfiguration) | Bearer | 200 |
 | POST | `/api/v1/auth/ban/appeal` | Submit one plain-text appeal per ban per rolling 30 days | Public | 204 |
 | POST | `/api/v1/auth/ban/status` | Read a ban using its opaque appeal ticket | Public | 200 |
 | POST | `/api/v1/auth/login` | Create a device session | Public | 200 |
 | POST | `/api/v1/auth/logout` | Revoke the current device session | Bearer | 204 |
 | POST | `/api/v1/auth/register` | Register using an invitation | Public | 201 |
 | POST | `/api/v1/categories` | Create a category | Bearer | 201 |
-| POST | `/api/v1/channels` | Create a text or voice channel | Bearer | 201 |
+| POST | `/api/v1/channels` | Create a text, voice or AI channel | Bearer | 201 |
+| POST | `/api/v1/channels/{id}/ai/presets` | Create an AI persona (ManageChannels) | Bearer | 200 |
+| POST | `/api/v1/channels/{id}/ai/turns/{turn}/cancel` | Cancel an AI turn | Bearer | 200 |
+| POST | `/api/v1/channels/{id}/ai/turns/{turn}/retry` | Explicitly retry an interrupted or failed AI turn | Bearer | 200 |
 | POST | `/api/v1/conversations/{id}/attachments` | Upload raw image or video bytes | Bearer | 201 |
 | POST | `/api/v1/conversations/{id}/encryption/events` | Compare-and-swap an MLS group revision and consume single-use key packages | Bearer | 200 |
 | POST | `/api/v1/conversations/{id}/messages` | Commit a message with retry deduplication | Bearer | 201 |
@@ -114,6 +132,10 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | PUT | `/api/v1/categories/{id}` | Update a category | Bearer | 200 |
 | PUT | `/api/v1/categories/{id}/permissions/{role}` | Set a role's permission override | Bearer | 204 |
 | PUT | `/api/v1/channels/{id}` | Update a channel | Bearer | 200 |
+| PUT | `/api/v1/channels/{id}/ai` | Configure an AI channel (ManageChannels) | Bearer | 200 |
+| PUT | `/api/v1/channels/{id}/ai/avatar` | Upload a bounded AI avatar (ManageChannels) | Bearer | 200 |
+| PUT | `/api/v1/channels/{id}/ai/presets/{preset}` | Update an AI persona (ManageChannels) | Bearer | 200 |
+| PUT | `/api/v1/channels/{id}/ai/presets/{preset}/avatar` | Upload a bounded AI avatar (ManageChannels) | Bearer | 200 |
 | PUT | `/api/v1/channels/{id}/permissions/{role}` | Set a role's permission override | Bearer | 204 |
 | PUT | `/api/v1/conversations/{id}/messages/{message}` | Edit an authored message | Bearer | 200 |
 | PUT | `/api/v1/conversations/{id}/read` | Advance this account's read position monotonically to the highest displayed message sequence | Bearer | 200 |

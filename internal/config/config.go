@@ -17,6 +17,8 @@ type Policy struct {
 	DM                      DMPolicy `json:"dm,omitempty"`
 	TextMaxBytes            int64    `json:"text_max_bytes"`
 	TextRetentionDays       int64    `json:"text_retention_days"`
+	AIChannelMaxBytes       int64    `json:"ai_channel_max_bytes" minimum:"4096"`
+	AITextMaxBytes          int64    `json:"ai_text_max_bytes" minimum:"4096"`
 	ImageMaxBytes           int64    `json:"image_max_bytes"`
 	VideoMaxBytes           int64    `json:"video_max_bytes"`
 	AttachmentMaxBytes      int64    `json:"attachment_max_bytes"`
@@ -158,6 +160,8 @@ func LoadValues(values map[string]string) (Config, error) {
 		dst      *int64
 	}{
 		{"HAUNT_TEXT_MAX_BYTES", 256_000_000, 1 << 50, &c.Policy.TextMaxBytes},
+		{"HAUNT_AI_CHANNEL_MAX_BYTES", 64 << 20, 1 << 50, &c.Policy.AIChannelMaxBytes},
+		{"HAUNT_AI_TEXT_MAX_BYTES", 128 << 20, 1 << 50, &c.Policy.AITextMaxBytes},
 		{"HAUNT_TEXT_RETENTION_DAYS", 30, 36500, &c.Policy.TextRetentionDays},
 		{"HAUNT_IMAGE_MAX_BYTES", 2 << 20, 1 << 50, &c.Policy.ImageMaxBytes},
 		{"HAUNT_VIDEO_MAX_BYTES", 10 << 20, 1 << 50, &c.Policy.VideoMaxBytes},
@@ -203,6 +207,9 @@ func LoadValues(values map[string]string) (Config, error) {
 	}
 	if c.Policy.TextMaxBytes < 4096 {
 		return Config{}, fmt.Errorf("HAUNT_TEXT_MAX_BYTES must be at least 4096")
+	}
+	if c.Policy.AIChannelMaxBytes < 4096 || c.Policy.AITextMaxBytes < 4096 {
+		return Config{}, fmt.Errorf("HAUNT_AI_CHANNEL_MAX_BYTES and HAUNT_AI_TEXT_MAX_BYTES must be at least 4096")
 	}
 	if err := e.loadMedia(&c); err != nil {
 		return Config{}, err

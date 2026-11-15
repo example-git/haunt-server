@@ -31,6 +31,8 @@ type fixture struct {
 	Voice          string `json:"voice"`
 	Invitation     string `json:"invitation"`
 	TLSCertificate string `json:"tlsCertificate,omitempty"`
+	AIChannel      string `json:"ai_channel,omitempty"`
+	AIPreset       string `json:"ai_preset,omitempty"`
 }
 
 func server(t *testing.T, name string, encoded bool) fixture {
@@ -102,6 +104,10 @@ func server(t *testing.T, name string, encoded bool) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	aiChannel, aiPreset := "", ""
+	if mode := os.Getenv("HAUNT_CLIENT_CHECK"); mode == "ai" || mode == "ai-desktop" {
+		aiChannel, aiPreset = aiFixture(t, ctx, cfg, pools, ids, features, principal)
+	}
 	general, err := ids.SaveChannel(ctx, principal, "", "general", "text", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +169,7 @@ func server(t *testing.T, name string, encoded bool) fixture {
 		srv.Start()
 	}
 	t.Cleanup(srv.Close)
-	return fixture{srv.URL, name, id, general.ID, voice.ID, invite.Token, certificate}
+	return fixture{URL: srv.URL, Name: name, Instance: id, General: general.ID, Voice: voice.ID, Invitation: invite.Token, TLSCertificate: certificate, AIChannel: aiChannel, AIPreset: aiPreset}
 }
 func TestClients(t *testing.T) {
 	if os.Getenv("HAUNT_CLIENT_E2E") != "1" {

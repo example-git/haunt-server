@@ -115,6 +115,9 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 	cancelStartup()
+	if err := features.Start(ctx); err != nil {
+		return fmt.Errorf("AI worker startup: %w", err)
+	}
 	maintenanceCtx, cancelMaintenance := context.WithCancel(postgres.WithWorkload(context.Background(), config.Maintenance))
 	maintenanceDone := make(chan struct{})
 	go func() {

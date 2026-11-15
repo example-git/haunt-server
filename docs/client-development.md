@@ -87,6 +87,11 @@ contiguous ranges and completed archive ranges serve navigation from local
 storage. Messages outside the downloaded archive are not search results. Device
 storage quotas and browser eviction still apply.
 
+AI channels remove cached messages and private archive entries through the server's
+authoritative `pruned_through` boundary. Reconnect and imported archives apply the
+same boundary. Message archives preserve `ai_author` snapshots for retained AI
+replies; their empty human `author_id` must not resolve to a user profile.
+
 The browser also keeps a separate private text archive. Downloaded readable text
 survives live-chat deletion; restoring that archive never recreates live messages
 or live-search results. **Backup & restore** exports/imports compressed JSONL

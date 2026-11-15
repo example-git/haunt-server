@@ -106,6 +106,15 @@ func normalizeArt(raw []byte, banner bool) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+func (s *Service) NormalizeAvatar(raw []byte) ([]byte, error) {
+	select {
+	case s.artSlots <- struct{}{}:
+		defer func() { <-s.artSlots }()
+	default:
+		return nil, ErrBusy
+	}
+	return normalizeArt(raw, false)
+}
 func (s *Service) SaveArt(ctx context.Context, p Principal, kind string, raw []byte) (string, error) {
 	if kind != "avatar" && kind != "icon" && kind != "banner" {
 		return "", ErrInvalid

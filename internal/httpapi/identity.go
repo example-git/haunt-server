@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/example-git/haunt-server/internal/ai"
+	"github.com/example-git/haunt-server/internal/ai/provider"
 	"github.com/example-git/haunt-server/internal/attachments"
 	"github.com/example-git/haunt-server/internal/blobstore"
 	"github.com/example-git/haunt-server/internal/chat"
@@ -57,7 +59,29 @@ func (a *api) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	status := http.StatusInternalServerError
 	code := "internal_error"
+	var providerErr *provider.Error
 	switch {
+	case errors.Is(err, ai.ErrStorage), errors.Is(err, chat.ErrAIStorageFull):
+		status, code = 507, "ai_storage_full"
+	case errors.Is(err, ai.ErrConfiguration):
+		status, code = 409, "ai_configuration_required"
+	case errors.Is(err, ai.ErrHistoryChanged):
+		status, code = 409, "ai_history_changed"
+	case errors.As(err, &providerErr):
+		code = "ai_" + string(providerErr.Kind)
+		switch providerErr.Kind {
+		case provider.RequiresAuth:
+			status = 409
+		case provider.InvalidRequest:
+			status = 400
+		case provider.RateLimit:
+			status = 429
+			if providerErr.RetryAfter > 0 {
+				w.Header().Set("Retry-After", strconv.FormatInt(int64(providerErr.RetryAfter.Seconds())+1, 10))
+			}
+		default:
+			status = 502
+		}
 	case errors.Is(err, blobstore.ErrInvalid):
 		status, code = 400, "invalid_storage_provider"
 	case errors.Is(err, blobstore.ErrInUse):

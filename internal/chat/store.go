@@ -23,6 +23,7 @@ type Store struct {
 	Identity     *identity.Service
 	InstanceID   string
 	Policy       config.Policy
+	AI           AIAcceptance
 	lockAcquires atomic.Uint64
 	lockDuration atomic.Uint64
 	lockPending  atomic.Int64
@@ -36,6 +37,7 @@ type Message struct {
 	ID             string     `json:"id"`
 	ConversationID string     `json:"conversation_id"`
 	AuthorID       string     `json:"author_id"`
+	AIAuthor       *AIAuthor  `json:"ai_author,omitempty"`
 	Seq            int64      `json:"seq"`
 	Body           string     `json:"body"`
 	Attachments    []string   `json:"attachment_ids"`
@@ -70,11 +72,11 @@ type Event struct {
 	Data           any    `json:"data"`
 }
 
-const messageColumns = `id,conversation_id,author_id,seq,body,attachment_ids,created_at,edited_at,deleted,request_id,reply_to_id,mention_user_ids`
+const messageColumns = `id,conversation_id,COALESCE(author_id::text,''),seq,body,attachment_ids,created_at,edited_at,deleted,request_id,reply_to_id,mention_user_ids,ai_author`
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
-	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.ReplyToID, &m.MentionUserIDs)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.ReplyToID, &m.MentionUserIDs, &m.AIAuthor)
 	return m, err
 }
 
@@ -312,7 +314,7 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 		if !identity.ValidID(reply) {
 			return Message{}, identity.ErrInvalid
 		}
-		if err = tx.QueryRow(ctx, `SELECT author_id FROM chatxo.messages WHERE id=$1 AND conversation_id=$2 AND NOT deleted AND chatxo.message_retained(conversation_id,created_at,$3,$4)`, reply, conv, policy.TextRetentionDays, policy.DM.TextRetentionDays).Scan(&replyAuthor); errors.Is(err, pgx.ErrNoRows) {
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(author_id::text,'') FROM chatxo.messages WHERE id=$1 AND conversation_id=$2 AND NOT deleted AND chatxo.message_retained(conversation_id,created_at,$3,$4)`, reply, conv, policy.TextRetentionDays, policy.DM.TextRetentionDays).Scan(&replyAuthor); errors.Is(err, pgx.ErrNoRows) {
 			return Message{}, identity.ErrInvalid
 		} else if err != nil {
 			return Message{}, err
@@ -377,6 +379,11 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 	}
 	if err = s.prune(ctx, tx, policy); err != nil {
 		return Message{}, err
+	}
+	if s.AI != nil {
+		if err = s.AI.Accept(ctx, tx, p, m); err != nil {
+			return Message{}, err
+		}
 	}
 	return m, tx.Commit(ctx)
 }
@@ -480,6 +487,11 @@ func (s *Store) Edit(ctx context.Context, p identity.Principal, conv, id, body s
 	}
 	if err = s.emit(ctx, tx, conv, &m.ID, kind, m); err != nil {
 		return Message{}, err
+	}
+	if s.AI != nil {
+		if err = s.AI.Invalidate(ctx, tx, conv); err != nil {
+			return Message{}, err
+		}
 	}
 	if err = s.prune(ctx, tx, policy); err != nil {
 		return Message{}, err
@@ -619,7 +631,7 @@ func (s *Store) prune(ctx context.Context, tx pgx.Tx, policy config.Policy) erro
 		// Inspect at most 512 oldest rows per batch. The running reclaimed
 		// count selects the exact oldest prefix needed, including replay bytes.
 		rows, err := tx.Query(ctx, `SELECT m.id,m.conversation_id,m.seq,m.bytes+COALESCE(e.bytes,0),COALESCE(e.floor,0),m.created_at<=now()-$2::bigint*interval '1 day'
-		 FROM (SELECT * FROM chatxo.messages WHERE conversation_id IN (SELECT id FROM chatxo.conversations WHERE kind='channel') AND ($1 OR created_at<=now()-$2::bigint*interval '1 day') ORDER BY created_at,id LIMIT 512) m
+		 FROM (SELECT * FROM chatxo.messages m WHERE conversation_id IN (SELECT id FROM chatxo.conversations WHERE kind='channel') AND ($1 OR created_at<=now()-$2::bigint*interval '1 day') AND (created_at<=now()-$2::bigint*interval '1 day' OR NOT EXISTS(SELECT 1 FROM chatxo.ai_turns t WHERE t.channel_id=m.conversation_id AND t.status='running' AND t.boundary_seq<=m.seq)) ORDER BY created_at,id LIMIT 512) m
 		 LEFT JOIN LATERAL (SELECT sum(bytes) bytes,max(id) floor FROM chatxo.events WHERE message_id=m.id) e ON true ORDER BY m.created_at,m.id`, used > policy.TextMaxBytes, policy.TextRetentionDays)
 		if err != nil {
 			return err
@@ -649,7 +661,20 @@ func (s *Store) prune(ctx context.Context, tx pgx.Tx, policy config.Policy) erro
 			return err
 		}
 		if len(victims) == 0 {
+			if used > policy.TextMaxBytes {
+				return ErrAIStorageFull
+			}
 			return nil
+		}
+		if s.AI != nil {
+			for conv, seq := range boundaries {
+				if err = s.AI.Prune(ctx, tx, conv, seq); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err = tx.Exec(ctx, `UPDATE chatxo.attachments SET status='deleting',expires_at=now() WHERE message_id=ANY($1::uuid[]) AND conversation_id IN (SELECT id FROM chatxo.channels WHERE kind='ai')`, victims); err != nil {
+			return err
 		}
 		if _, err = tx.Exec(ctx, `DELETE FROM chatxo.messages WHERE id=ANY($1::uuid[])`, victims); err != nil {
 			return err

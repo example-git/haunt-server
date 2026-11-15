@@ -30,6 +30,9 @@ func (r RuntimeSettings) Validate() error {
 		return errors.New("invalid_configuration")
 	}
 	p := r.Limits
+	if p.AIChannelMaxBytes < 4096 || p.AIChannelMaxBytes > 1<<50 || p.AITextMaxBytes < 4096 || p.AITextMaxBytes > 1<<50 {
+		return errors.New("invalid_configuration")
+	}
 	if p.TextMaxBytes < 4096 || p.TextMaxBytes > 1<<50 || p.ImageMaxBytes < 1 || p.VideoMaxBytes < 1 || p.AttachmentMaxBytes > 1<<50 || p.ImageMaxBytes > p.AttachmentMaxBytes || p.VideoMaxBytes > p.AttachmentMaxBytes || p.TextRetentionDays < 1 || p.TextRetentionDays > 36500 || p.AttachmentRetentionDays < 1 || p.AttachmentRetentionDays > 36500 || r.SessionDays < 1 || r.SessionDays > 365 || r.MediaRoomLimit < 2 || r.MediaRoomLimit > 64 || r.MediaMaxPeers < 2 || r.MediaMaxPeers > 4096 {
 		return errors.New("invalid_configuration")
 	}

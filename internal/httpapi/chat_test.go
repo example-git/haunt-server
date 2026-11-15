@@ -68,7 +68,7 @@ func sendMessage(t *testing.T, f *fixture, token, conv, body string) chat.Messag
 func accounting(t *testing.T, f *fixture) {
 	t.Helper()
 	var stored, actual, dm, dmActual int64
-	if err := f.pool.QueryRow(context.Background(), `SELECT text_bytes,(SELECT COALESCE(sum(bytes),0) FROM chatxo.messages)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.events),dm_text_bytes,(SELECT COALESCE(sum(m.bytes),0) FROM chatxo.messages m JOIN chatxo.conversations c ON c.id=m.conversation_id WHERE c.kind='dm') FROM chatxo.storage WHERE singleton`).Scan(&stored, &actual, &dm, &dmActual); err != nil {
+	if err := f.pool.QueryRow(context.Background(), `SELECT text_bytes,(SELECT COALESCE(sum(bytes),0) FROM chatxo.messages)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.events)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_channel_settings)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_presets)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_turns)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_turn_steps)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_avatars),dm_text_bytes,(SELECT COALESCE(sum(m.bytes),0) FROM chatxo.messages m JOIN chatxo.conversations c ON c.id=m.conversation_id WHERE c.kind='dm') FROM chatxo.storage WHERE singleton`).Scan(&stored, &actual, &dm, &dmActual); err != nil {
 		t.Fatal(err)
 	}
 	if stored != actual || dm != dmActual || stored-dm > f.cfg.Policy.TextMaxBytes {

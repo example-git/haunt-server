@@ -58,6 +58,10 @@ func (f *Features) configurationRoutes(a *api, mux routeRegistrar) {
 			a.fail(w, r, identity.ErrInvalid)
 			return
 		}
+		if v.Settings.Limits.AIChannelMaxBytes < 4096 || v.Settings.Limits.AITextMaxBytes < 4096 {
+			a.fail(w, r, identity.ErrConfiguration)
+			return
+		}
 		saved, err := a.identity.SaveRuntime(r.Context(), p, identity.RuntimeConfiguration{Revision: *v.Revision, Settings: *v.Settings})
 		if err != nil {
 			a.fail(w, r, err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/example-git/haunt-server/internal/platform/postgres"
+	"github.com/jackc/pgx/v5"
 )
 
 func (s *Service) Roles(ctx context.Context) ([]Role, error) {
@@ -241,8 +242,13 @@ func (s *Service) SaveCategory(ctx context.Context, p Principal, id, name string
 
 // Apply category overrides, then channel overrides, to the authenticated
 // request's base roles. At each scope deny wins across roles.
-// Only read/send/connect bits can be overridden; management is instance-wide.
+// Channel permissions can be overridden; management is instance-wide.
 func (s *Service) Channels(ctx context.Context, p Principal, id string) ([]Channel, error) {
+	return s.channels(ctx, s.pool, p, id)
+}
+func (s *Service) channels(ctx context.Context, q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, p Principal, id string) ([]Channel, error) {
 	if id != "" && !ValidID(id) {
 		return nil, ErrInvalid
 	}
@@ -250,7 +256,7 @@ func (s *Service) Channels(ctx context.Context, p Principal, id string) ([]Chann
 	if id != "" {
 		selected = id
 	}
-	rows, err := s.pool.Query(ctx, `SELECT c.id,c.category_id,c.name,c.kind,c.topic,c.icon,
+	rows, err := q.Query(ctx, `SELECT c.id,c.category_id,c.name,c.kind,c.topic,c.icon,
         CASE WHEN $5 THEN $6::bigint ELSE (((($3::bigint | cat.allow_bits) & ~cat.deny_bits) | ch.allow_bits) & ~ch.deny_bits) END
         FROM chatxo.channels c
         LEFT JOIN LATERAL (
@@ -292,6 +298,21 @@ func (s *Service) Channel(ctx context.Context, p Principal, id string) (Channel,
 	return items[0], nil
 }
 
+func (s *Service) ChannelForTransaction(ctx context.Context, tx pgx.Tx, p Principal, id string) (Channel, error) {
+	fresh, err := s.principal(ctx, tx, p.SessionID)
+	if err != nil {
+		return Channel{}, err
+	}
+	items, err := s.channels(ctx, tx, fresh, id)
+	if err != nil {
+		return Channel{}, err
+	}
+	if len(items) == 0 {
+		return Channel{}, ErrNotFound
+	}
+	return items[0], nil
+}
+
 // ChannelDetails allows older clients to omit optional metadata without erasing it.
 type ChannelDetails struct {
 	Topic *string
@@ -310,7 +331,7 @@ func (s *Service) SaveChannel(ctx context.Context, p Principal, id, name, kind s
 	if !p.Can(ManageChannels) {
 		return Channel{}, ErrForbidden
 	}
-	if !validName(name, 64) || (kind != "text" && kind != "voice") || (id != "" && !ValidID(id)) || (category != nil && !ValidID(*category)) {
+	if !validName(name, 64) || (kind != "text" && kind != "voice" && kind != "ai") || (id != "" && !ValidID(id)) || (category != nil && !ValidID(*category)) {
 		return Channel{}, ErrInvalid
 	}
 	var topic, icon *string
@@ -363,14 +384,29 @@ func (s *Service) DeleteResource(ctx context.Context, p Principal, kind, id stri
 	if kind == "category" {
 		query = `DELETE FROM chatxo.categories WHERE instance_id=$1 AND id=$2`
 	}
-	tag, err := s.pool.Exec(ctx, query, s.instanceID, id)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT singleton FROM chatxo.storage WHERE singleton FOR UPDATE`); err != nil {
+		return err
+	}
+	p, err = s.principal(ctx, tx, p.SessionID)
+	if err != nil {
+		return err
+	}
+	if !p.Can(ManageChannels) {
+		return ErrForbidden
+	}
+	tag, err := tx.Exec(ctx, query, s.instanceID, id)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (s *Service) SetOverride(ctx context.Context, p Principal, kind, id, roleID string, allow, deny int64) error {

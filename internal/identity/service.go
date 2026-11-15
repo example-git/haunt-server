@@ -95,7 +95,7 @@ func (s *Service) bootstrap(ctx context.Context, username, password string, firs
 		}
 		return tx.Commit(ctx)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO chatxo.roles(id,instance_id,name,permissions,is_default,position) VALUES ($1,$2,'everyone',7,true,0)`, newID(), s.instanceID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO chatxo.roles(id,instance_id,name,permissions,is_default,position) VALUES ($1,$2,'everyone',$3,true,0)`, newID(), s.instanceID, ChannelPermissions); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO chatxo.users(id,instance_id,username,password_hash,is_owner) VALUES ($1,$2,$3,$4,true)`, newID(), s.instanceID, username, hash); err != nil {

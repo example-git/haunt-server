@@ -4,9 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"sync"
 
 	"errors"
+	"github.com/example-git/haunt-server/internal/ai"
+	"github.com/example-git/haunt-server/internal/ai/clientidentity"
+	"github.com/example-git/haunt-server/internal/ai/providers"
 	"github.com/example-git/haunt-server/internal/attachments"
 	"github.com/example-git/haunt-server/internal/audioplugin"
 	"github.com/example-git/haunt-server/internal/chat"
@@ -23,6 +28,13 @@ import (
 )
 
 type Features struct {
+	AI               *ai.Service
+	AIOrigin         string
+	ClientIdentities *clientidentity.Manager
+	aiCancel         context.CancelFunc
+	aiWG             sync.WaitGroup
+	aiStart          sync.Once
+	aiStartErr       error
 	Extensions       *serverextension.Store
 	AudioPlugins     *audioplugin.Store
 	PluginRepository *audioplugin.RepositoryInstaller
@@ -49,10 +61,6 @@ func NewFeatures(ctx context.Context, c config.Config, pool postgres.Pool, ids *
 	// Acquire the installation's file ownership before applying a potentially
 	// smaller retention policy. A rejected second process must not prune the
 	// active process's history as a side effect of its failed startup.
-	if err := store.Maintain(ctx); err != nil {
-		media.Close()
-		return nil, err
-	}
 	plugins, err := audioplugin.New(c.DataDir)
 	if err != nil {
 		media.Close()
@@ -87,12 +95,53 @@ func NewFeatures(ctx context.Context, c config.Config, pool postgres.Pool, ids *
 	}
 	gateway := newGateway(store, ids, logger)
 	gateway.media = sfu
-	return &Features{Extensions: extensions, PluginRepository: audioplugin.NewRepositoryInstaller(c.AudioPluginGitHubToken), AudioPlugins: plugins, Defaults: c.RuntimeDefaults(), Previews: embeds.NewPersistent(pool), Chat: store, Gateway: gateway, Attachments: media, Voice: sfu, Relay: turn, Media: newMediaGateway(sfu, ids, c.MediaMaxPeers), CloudTURN: cloudTURN}, nil
+	f := &Features{Extensions: extensions, PluginRepository: audioplugin.NewRepositoryInstaller(c.AudioPluginGitHubToken), AudioPlugins: plugins, Defaults: c.RuntimeDefaults(), Previews: embeds.NewPersistent(pool), Chat: store, Gateway: gateway, Attachments: media, Voice: sfu, Relay: turn, Media: newMediaGateway(sfu, ids, c.MediaMaxPeers), CloudTURN: cloudTURN, AIOrigin: c.PublicURL}
+	f.ClientIdentities, err = clientidentity.New(filepath.Join(c.DataDir, "ai-client-versions.json"))
+	if err != nil {
+		f.Close(ctx)
+		return nil, err
+	}
+	policy := c.Policy.WithDefaults()
+	f.AI, err = ai.New(ctx, pool, ids, store, media, ai.Options{InstanceID: c.InstanceID, DataDir: c.DataDir, ChannelMaxBytes: policy.AIChannelMaxBytes, GlobalMaxBytes: policy.AITextMaxBytes}, providers.New(f.ClientIdentities, nil))
+	if err != nil {
+		f.Close(ctx)
+		return nil, err
+	}
+	store.AI = f.AI
+	if err = f.Maintain(ctx); err != nil {
+		f.Close(ctx)
+		return nil, err
+	}
+	return f, nil
+}
+func (f *Features) Start(ctx context.Context) error {
+	f.aiStart.Do(func() {
+		workerCtx, cancel := context.WithCancel(ctx)
+		f.aiCancel = cancel
+		if f.aiStartErr = f.AI.Start(workerCtx); f.aiStartErr != nil {
+			cancel()
+			return
+		}
+		f.aiWG.Add(1)
+		go func() { defer f.aiWG.Done(); f.ClientIdentities.Run(workerCtx) }()
+	})
+	return f.aiStartErr
 }
 func (f *Features) Maintain(ctx context.Context) error {
-	return errors.Join(f.Chat.Maintain(ctx), f.Attachments.Maintain(ctx))
+	var aiErr error
+	if f.AI != nil {
+		aiErr = f.AI.Maintain(ctx)
+	}
+	return errors.Join(aiErr, f.Chat.Maintain(ctx), f.Attachments.Maintain(ctx))
 }
 func (f *Features) Close(ctx context.Context) error {
+	if f.aiCancel != nil {
+		f.aiCancel()
+	}
+	if f.AI != nil {
+		f.AI.Close()
+	}
+	f.aiWG.Wait()
 	if f.Extensions != nil {
 		f.Extensions.Close()
 	}
@@ -108,6 +157,7 @@ func (f *Features) Close(ctx context.Context) error {
 
 func (f *Features) routes(a *api, mux routeRegistrar) {
 	f.dmRoutes(a, mux)
+	f.aiRoutes(a, mux)
 	if f.Gateway != nil {
 		f.Gateway.audit = a.auditAccess
 	}

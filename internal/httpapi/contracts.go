@@ -30,7 +30,7 @@ type SaveRoleRequest struct {
 	DisplaySeparately *bool  `json:"display_separately,omitempty" description:"Show online members separately in the member list. Defaults to false for new roles; omission preserves existing settings."`
 	Position          *int   `json:"position,omitempty" minimum:"0" maximum:"1000" description:"Role rank; default role is zero. Delegates can only manage lower-ranked roles and members."`
 	Name              string `json:"name" required:"true" minLength:"1" maxLength:"64"`
-	Permissions       *int64 `json:"permissions" required:"true" nullable:"false" minimum:"0" maximum:"262143"`
+	Permissions       *int64 `json:"permissions" required:"true" nullable:"false" minimum:"0" maximum:"1048575"`
 }
 
 type AssignRolesRequest struct {
@@ -43,15 +43,15 @@ type SaveCategoryRequest struct {
 
 type SaveChannelRequest struct {
 	Name     string  `json:"name" required:"true" minLength:"1" maxLength:"64"`
-	Kind     string  `json:"kind" required:"true" enum:"text,voice"`
+	Kind     string  `json:"kind" required:"true" enum:"text,voice,ai"`
 	Category *string `json:"category_id"`
 	Topic    *string `json:"topic,omitempty" maxLength:"512"`
 	Icon     *string `json:"icon,omitempty" maxLength:"32" description:"Built-in SVG icon key; empty restores the default for the channel kind. Omission preserves the current icon." enum:",hash,headphones,message-circle,megaphone,volume-2,mic,music,radio,gamepad-2,monitor,video,camera,image,film,code,terminal,book-open,graduation-cap,coffee,users,calendar,star,heart,shield,wrench"`
 }
 
 type SetPermissionsRequest struct {
-	Allow *int64 `json:"allow" required:"true" nullable:"false" minimum:"0" maximum:"7"`
-	Deny  *int64 `json:"deny" required:"true" nullable:"false" minimum:"0" maximum:"7"`
+	Allow *int64 `json:"allow" required:"true" nullable:"false" minimum:"0" maximum:"786439"`
+	Deny  *int64 `json:"deny" required:"true" nullable:"false" minimum:"0" maximum:"786439"`
 }
 
 type CredentialsRequest struct {

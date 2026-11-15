@@ -112,13 +112,14 @@ def backup(root, attachments, keep):
             shutil.copyfile(source, target)
             os.chmod(target, 0o600)
             files["attachments/" + source.name] = digest(target)
-        key = attachments.parent / "storage-provider.key"
-        if key.exists():
-            if key.is_symlink() or not key.is_file() or key.stat().st_size != 32:
-                raise RuntimeError("invalid storage provider encryption key")
-            shutil.copyfile(key, staging / key.name)
-            os.chmod(staging / key.name, 0o600)
-            files[key.name] = digest(staging / key.name)
+        for key_name in ("storage-provider.key", "ai-provider.key"):
+            key = attachments.parent / key_name
+            if key.exists():
+                if key.is_symlink() or not key.is_file() or key.stat().st_size != 32:
+                    raise RuntimeError("invalid provider encryption key: " + key_name)
+                shutil.copyfile(key, staging / key.name)
+                os.chmod(staging / key.name, 0o600)
+                files[key.name] = digest(staging / key.name)
         plugins = attachments.parent / "audio-plugins"
         if plugins.exists():
             if plugins.is_symlink() or not plugins.is_dir():
@@ -136,10 +137,15 @@ def backup(root, attachments, keep):
             sync_directory(staging / "audio-plugins")
         external = []
         if sql("SELECT to_regclass('chatxo.storage_providers') IS NOT NULL") == "t":
-            if sql("SELECT EXISTS(SELECT 1 FROM chatxo.storage_providers WHERE credentials IS NOT NULL)") == "t" and key.name not in files:
+            if sql("SELECT EXISTS(SELECT 1 FROM chatxo.storage_providers WHERE credentials IS NOT NULL)") == "t" and "storage-provider.key" not in files:
                 raise RuntimeError("storage provider credentials require storage-provider.key in the backup")
             external = json.loads(sql("SELECT COALESCE(json_agg(json_build_object('id',id,'name',name,'configuration',configuration)), '[]'::json) FROM chatxo.storage_providers"))
-        manifest = {"external_storage": external, "kind": KIND, "instance_id": stored_id, "created_at": timestamp, "files": files}
+        ai_credentials = False
+        if sql("SELECT to_regclass('chatxo.ai_accounts') IS NOT NULL") == "t":
+            ai_credentials = sql("SELECT EXISTS(SELECT 1 FROM chatxo.ai_accounts WHERE credentials IS NOT NULL) OR EXISTS(SELECT 1 FROM chatxo.ai_oauth_sessions)") == "t"
+            if ai_credentials and "ai-provider.key" not in files:
+                raise RuntimeError("AI credentials require ai-provider.key in the backup")
+        manifest = {"ai_credentials": ai_credentials, "external_storage": external, "kind": KIND, "instance_id": stored_id, "created_at": timestamp, "files": files}
         (staging / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         os.chmod(staging / "manifest.json", 0o600)
         for path in [staging / name for name in files] + [staging / "manifest.json"]:
@@ -181,17 +187,21 @@ def restore(source, attachments):
     if sum(name.startswith("audio-plugins/") and name.endswith(".zip") for name in files) > 4:
         raise RuntimeError("too many audio plugins in backup")
     for name, checksum in files.items():
-        if name not in ("database.dump", "storage-provider.key", "audio-plugins/defaults.json", "audio-plugins/.default-seeded") and not (name.startswith("attachments/") and UUID_NAME.fullmatch(name.removeprefix("attachments/"))) and not re.fullmatch(r"audio-plugins/[a-z][a-z0-9_-]{0,63}\.zip", name):
+        if name not in ("database.dump", "storage-provider.key", "ai-provider.key", "audio-plugins/defaults.json", "audio-plugins/.default-seeded") and not (name.startswith("attachments/") and UUID_NAME.fullmatch(name.removeprefix("attachments/"))) and not re.fullmatch(r"audio-plugins/[a-z][a-z0-9_-]{0,63}\.zip", name):
             raise RuntimeError("unsafe backup path")
         path = source / name
         if name.startswith("audio-plugins/") and path.stat().st_size > plugin_file_limit(name.removeprefix("audio-plugins/")):
             raise RuntimeError("oversized audio plugin in backup")
         if path.is_symlink() or not path.is_file() or digest(path) != checksum:
             raise RuntimeError("backup checksum/type validation failed")
-    if "storage-provider.key" in files and (source / "storage-provider.key").stat().st_size != 32:
-        raise RuntimeError("invalid storage provider encryption key")
-    if (attachments.parent / "storage-provider.key").exists() or (attachments.parent / "storage-provider.key").is_symlink():
-        raise RuntimeError("restore requires a data directory without an existing storage provider key")
+    if manifest.get("ai_credentials") and "ai-provider.key" not in files:
+        raise RuntimeError("AI credentials require ai-provider.key in the backup")
+    for key_name in ("storage-provider.key", "ai-provider.key"):
+        if key_name in files and (source / key_name).stat().st_size != 32:
+            raise RuntimeError("invalid provider encryption key: " + key_name)
+        key = attachments.parent / key_name
+        if key.exists() or key.is_symlink():
+            raise RuntimeError("restore requires a data directory without an existing provider key")
     if sql("""SELECT (SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname !~ '^pg_')
         + (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public')
         + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public')
@@ -207,7 +217,7 @@ def restore(source, attachments):
     committed = False
     try:
         for name in files:
-            if name == "storage-provider.key" or name.startswith(("attachments/", "audio-plugins/")):
+            if name in ("storage-provider.key", "ai-provider.key") or name.startswith(("attachments/", "audio-plugins/")):
                 target = staging / name.removeprefix("attachments/")
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 shutil.copyfile(source / name, target)
@@ -217,7 +227,7 @@ def restore(source, attachments):
         database("pg_restore", "--single-transaction", "--no-owner", "--no-acl", str(source / "database.dump"))
         committed = True
         for path in staging.iterdir():
-            destination = attachments.parent if path.name in ("storage-provider.key", "audio-plugins") else attachments
+            destination = attachments.parent if path.name in ("storage-provider.key", "ai-provider.key", "audio-plugins") else attachments
             if path.name == "audio-plugins" and plugins.exists():
                 plugins.rmdir()
             path.rename(destination / path.name)

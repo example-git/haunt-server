@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"github.com/example-git/haunt-server/internal/ai"
 	"github.com/example-git/haunt-server/internal/attachments"
 	"github.com/example-git/haunt-server/internal/audioplugin"
 	"github.com/example-git/haunt-server/internal/blobstore"
@@ -99,6 +100,9 @@ type instanceResponse struct {
 type afterQuery struct {
 	After string `query:"after" description:"Exclusive UUID cursor; up to 100 results."`
 }
+type aiAvatarQuery struct {
+	Version string `query:"v" pattern:"^[0-9a-f]{32}$" description:"Immutable avatar version retained while referenced by settings, personas, turns or messages. Omit to read the current avatar."`
+}
 type historyQuery struct {
 	After        int64 `query:"after" minimum:"0" default:"0" description:"Exclusive conversation sequence; zero starts at the oldest retained message. Pages are ascending by sequence."`
 	Limit        int   `query:"limit" minimum:"1" maximum:"100" default:"100"`
@@ -130,6 +134,39 @@ func endpointContracts() map[string]endpointContract {
 	c := map[string]endpointContract{}
 	add := func(pattern, id, summary string, in, out any, status int) {
 		c[pattern] = endpointContract{id: id, summary: summary, input: in, output: out, status: status}
+	}
+	add("GET /api/v1/ai/providers", "aiProviders", "List native AI integrations and model catalogs", nil, aiProvidersResponse{}, 200)
+	add("GET /api/v1/ai/accounts", "aiAccounts", "List AI connection status without credentials", nil, aiAccountsResponse{}, 200)
+	add("DELETE /api/v1/ai/accounts/{account}", "aiDisconnect", "Disconnect an AI account (ManageConfiguration)", nil, nil, 204)
+	add("GET /api/v1/ai/accounts/{account}/models", "aiModels", "List models for a configured AI account", nil, aiModelsResponse{}, 200)
+	add("POST /api/v1/ai/oauth/start", "aiOAuthStart", "Prepare a single-use provider OAuth connection (ManageConfiguration)", ai.OAuthPrepareInput{}, ai.OAuthSession{}, 200)
+	add("POST /api/v1/ai/oauth/{session}/complete", "aiOAuthComplete", "Exchange an OAuth code and encrypt account credentials (ManageConfiguration)", ai.OAuthCompleteInput{}, ai.Account{}, 200)
+	add("GET /api/v1/channels/{id}/ai", "aiSettings", "Read AI channel settings", nil, ai.Settings{}, 200)
+	add("PUT /api/v1/channels/{id}/ai", "aiSaveSettings", "Configure an AI channel (ManageChannels)", ai.SettingsInput{}, ai.Settings{}, 200)
+	add("GET /api/v1/channels/{id}/ai/presets", "aiPresets", "List mentionable AI personas", nil, aiPresetsResponse{}, 200)
+	add("POST /api/v1/channels/{id}/ai/presets", "aiCreatePreset", "Create an AI persona (ManageChannels)", ai.PresetInput{}, ai.Preset{}, 200)
+	add("PUT /api/v1/channels/{id}/ai/presets/{preset}", "aiSavePreset", "Update an AI persona (ManageChannels)", ai.PresetInput{}, ai.Preset{}, 200)
+	add("DELETE /api/v1/channels/{id}/ai/presets/{preset}", "aiDeletePreset", "Remove an AI persona (ManageChannels)", nil, nil, 204)
+	add("GET /api/v1/channels/{id}/ai/usage", "aiUsage", "Read AI storage usage and authoritative pruning boundary", nil, ai.Usage{}, 200)
+	add("GET /api/v1/channels/{id}/ai/turns", "aiTurns", "Read authoritative AI turn status after reconnect", nil, aiTurnsResponse{}, 200)
+	add("POST /api/v1/channels/{id}/ai/turns/{turn}/cancel", "aiCancel", "Cancel an AI turn", nil, ai.Turn{}, 200)
+	add("POST /api/v1/channels/{id}/ai/turns/{turn}/retry", "aiRetry", "Explicitly retry an interrupted or failed AI turn", nil, ai.Turn{}, 200)
+	for _, preset := range []bool{false, true} {
+		path, name := "/api/v1/channels/{id}/ai/avatar", "aiAvatar"
+		var output any = ai.Settings{}
+		if preset {
+			path, name, output = "/api/v1/channels/{id}/ai/presets/{preset}/avatar", "aiPresetAvatar", ai.Preset{}
+		}
+		add("PUT "+path, name+"Save", "Upload a bounded AI avatar (ManageChannels)", nil, output, 200)
+		v := c["PUT "+path]
+		v.binaryInput = true
+		c["PUT "+path] = v
+		add("GET "+path, name+"Get", "Read an authorized AI avatar", nil, nil, 200)
+		v = c["GET "+path]
+		v.query = aiAvatarQuery{}
+		v.binaryOutput = true
+		c["GET "+path] = v
+		add("DELETE "+path, name+"Delete", "Remove an AI avatar (ManageChannels)", nil, nil, 204)
 	}
 	add("GET /healthz", "health", "Check process liveness", nil, statusResponse{}, 200)
 	add("GET /readyz", "readiness", "Check database and identity schema readiness", nil, statusResponse{}, 200)
@@ -246,7 +283,7 @@ func endpointContracts() map[string]endpointContract {
 	add("PUT /api/v1/categories/{id}", "updateCategory", "Update a category", SaveCategoryRequest{}, identity.Category{}, 200)
 	add("GET /api/v1/channels", "listChannels", "List visible channels", nil, channelsResponse{}, 200)
 	add("GET /api/v1/channels/{id}", "getChannel", "Get a channel and effective permissions", nil, identity.Channel{}, 200)
-	add("POST /api/v1/channels", "createChannel", "Create a text or voice channel", SaveChannelRequest{}, identity.Channel{}, 201)
+	add("POST /api/v1/channels", "createChannel", "Create a text, voice or AI channel", SaveChannelRequest{}, identity.Channel{}, 201)
 	add("PUT /api/v1/channels/{id}", "updateChannel", "Update a channel", SaveChannelRequest{}, identity.Channel{}, 200)
 	for _, resource := range []struct{ path, name string }{{"categories", "Category"}, {"channels", "Channel"}} {
 		base := "/api/v1/" + resource.path + "/{id}"

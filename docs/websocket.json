@@ -2,6 +2,371 @@
   "authentication": "Within five seconds of opening either socket, send its authenticate text frame. Use the device-session bearer token in the frame, never in the URL. Event socket logout, revocation or disconnect removes its media participant.",
   "components": {
     "schemas": {
+      "AiAccount": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "status",
+          "label",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "AiOAuthCompleteInput": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "type": "object"
+      },
+      "AiOAuthPrepareInput": {
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "redirect_uri"
+        ],
+        "type": "object"
+      },
+      "AiOAuthSession": {
+        "properties": {
+          "authorization_url": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "authorization_url",
+          "redirect_uri",
+          "state",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "AiPreset": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "instructions",
+          "id",
+          "channel_id",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "AiPresetInput": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "instructions"
+        ],
+        "type": "object"
+      },
+      "AiProviderInfo": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderModel"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "redirect_mode": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "models",
+          "redirect_mode",
+          "redirect_uri"
+        ],
+        "type": "object"
+      },
+      "AiSettings": {
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "active_preset_id": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "connection_status": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id",
+          "provider",
+          "model",
+          "instructions",
+          "name",
+          "max_bytes",
+          "channel_id",
+          "revision",
+          "connection_status"
+        ],
+        "type": "object"
+      },
+      "AiSettingsInput": {
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "provider",
+          "model",
+          "instructions",
+          "name",
+          "max_bytes"
+        ],
+        "type": "object"
+      },
+      "AiTurn": {
+        "properties": {
+          "actor_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "partial_text": {
+            "type": "string"
+          },
+          "retry_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger_message_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel_id",
+          "trigger_message_id",
+          "actor_id",
+          "status",
+          "revision",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "AiUsage": {
+        "properties": {
+          "channel_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "channel_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "global_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "global_max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "history_epoch": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pruned_through": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pruned_through_seq": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pruned_through_seq",
+          "history_epoch",
+          "channel_bytes",
+          "channel_max_bytes",
+          "global_bytes",
+          "global_max_bytes",
+          "pruned_through"
+        ],
+        "type": "object"
+      },
       "AttachmentsAttachment": {
         "properties": {
           "bytes": {
@@ -543,6 +908,24 @@
         ],
         "type": "object"
       },
+      "ChatAIAuthor": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "ChatConversation": {
         "properties": {
           "id": {
@@ -845,6 +1228,9 @@
       },
       "ChatMessage": {
         "properties": {
+          "ai_author": {
+            "$ref": "#/components/schemas/ChatAIAuthor"
+          },
           "attachment_ids": {
             "items": {
               "type": "string"
@@ -1074,6 +1460,16 @@
       },
       "ConfigPolicy": {
         "properties": {
+          "ai_channel_max_bytes": {
+            "format": "int64",
+            "minimum": 4096,
+            "type": "integer"
+          },
+          "ai_text_max_bytes": {
+            "format": "int64",
+            "minimum": 4096,
+            "type": "integer"
+          },
           "attachment_max_bytes": {
             "format": "int64",
             "type": "integer"
@@ -1105,6 +1501,8 @@
         "required": [
           "text_max_bytes",
           "text_retention_days",
+          "ai_channel_max_bytes",
+          "ai_text_max_bytes",
           "image_max_bytes",
           "video_max_bytes",
           "attachment_max_bytes",
@@ -1272,6 +1670,91 @@
         },
         "required": [
           "provider_id"
+        ],
+        "type": "object"
+      },
+      "HttpapiAiAccountsResponse": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AiAccount"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "type": "object"
+      },
+      "HttpapiAiModelsResponse": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderModel"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "type": "object"
+      },
+      "HttpapiAiPresetsResponse": {
+        "properties": {
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/AiPreset"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "presets"
+        ],
+        "type": "object"
+      },
+      "HttpapiAiProvidersResponse": {
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/AiProviderInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "type": "object"
+      },
+      "HttpapiAiTurnsResponse": {
+        "properties": {
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/AiTurn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "turns"
         ],
         "type": "object"
       },
@@ -2533,7 +3016,8 @@
           "kind": {
             "enum": [
               "text",
-              "voice"
+              "voice",
+              "ai"
             ],
             "type": "string"
           },
@@ -2615,7 +3099,7 @@
             "type": "string"
           },
           "permissions": {
-            "maximum": 262143,
+            "maximum": 1048575,
             "minimum": 0,
             "type": "integer"
           },
@@ -2673,12 +3157,12 @@
         "additionalProperties": false,
         "properties": {
           "allow": {
-            "maximum": 7,
+            "maximum": 786439,
             "minimum": 0,
             "type": "integer"
           },
           "deny": {
-            "maximum": 7,
+            "maximum": 786439,
             "minimum": 0,
             "type": "integer"
           }
@@ -3535,6 +4019,33 @@
         ],
         "type": "object"
       },
+      "ProviderModel": {
+        "properties": {
+          "context_window": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "vision": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "vision",
+          "context_window",
+          "max_output_tokens"
+        ],
+        "type": "object"
+      },
       "ServerextensionConfiguration": {
         "properties": {
           "category": {
@@ -4259,7 +4770,7 @@
       "$ref": "#/components/schemas/HttpapiEventCommand"
     },
     "durable_events": {
-      "data": "Message object for created/updated/deleted; {pruned_through: sequence} for history.pruned. For dm.keys_changed the data is {revision}; for dm.devices_changed it is {user}. Refresh the DM encryption endpoints without incrementing unread counts. Monotonic global event IDs can skip inaccessible events. A gap requires HTTP history refresh.",
+      "data": "Message object for created/updated/deleted; AI authors use ai_author identity snapshots and an empty author_id. ai.settings.updated carries the settings revision and requires an authorized settings/presets refresh. ai.turn.updated carries a coalesced durable AI turn checkpoint with a monotonic revision; reconnect reads /channels/{id}/ai/turns. AI history pruning also evicts downloaded client history. {pruned_through: sequence} for history.pruned. For dm.keys_changed the data is {revision}; for dm.devices_changed it is {user}. Refresh the DM encryption endpoints without incrementing unread counts. Monotonic global event IDs can skip inaccessible events. A gap requires HTTP history refresh.",
       "schema": {
         "$ref": "#/components/schemas/ChatEvent"
       },
@@ -4268,6 +4779,8 @@
         "message.updated",
         "message.deleted",
         "history.pruned",
+        "ai.turn.updated",
+        "ai.settings.updated",
         "dm.keys_changed",
         "dm.devices_changed"
       ]

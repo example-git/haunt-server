@@ -92,6 +92,10 @@ func runtimeMenu() MenuPage {
 	fields[5].Help = "Reducing message retention or the message budget can permanently remove older messages and replay history."
 	fields[6].Help = "Existing calls remain connected when capacity is reduced. New connections use the new limits."
 	fields[9].Help = "Applies to newly created sessions. Remembered sessions stay signed in until revoked."
+	fields = append(fields,
+		menuNumber("settings.limits.ai_channel_max_bytes", "Default AI channel history budget (MiB)", 4096/mib, 1<<30, 1/mib, mib),
+		menuNumber("settings.limits.ai_text_max_bytes", "Total AI conversation budget (MiB)", 4096/mib, 1<<30, 1/mib, mib),
+	)
 	return MenuPage{ID: "configuration", Label: "Limits & access", ContextLabel: "Limits & access", Form: &MenuForm{
 		LoadPath: "/api/v1/instance/configuration", SavePath: "/api/v1/instance/configuration", Method: "PUT", CarryFields: []string{"revision", "settings.limits.dm.version"}, Fields: fields,
 		Description: "Saved on this server and applied without a restart.", SubmitLabel: "Save configuration", SuccessMessage: "Server configuration saved and applied.",
@@ -114,6 +118,7 @@ func serverMenu(p identity.Principal, extensions ...serverextension.Extension) M
 		v.Pages = append(v.Pages, runtimeMenu())
 		add(identity.ManageConfiguration, "storage", "Storage providers")
 		add(identity.ManageConfiguration, "audio-plugins", "Audio plugins")
+		add(identity.ManageConfiguration, "ai-connections", "AI connections")
 	}
 	add(identity.ManageServer, "overview", "Overview & appearance")
 	add(identity.ManageServer, "emojis", "Emojis")
@@ -142,6 +147,9 @@ func (f *Features) menuRoutes(a *api, mux routeRegistrar) {
 				{ID: "overview", Label: "Overview", ContextLabel: "Edit channel", Builtin: "overview"},
 				{ID: "permissions", Label: "Permissions", ContextLabel: "Channel permissions", Builtin: "permissions"},
 				{ID: "delete", Label: "Delete channel", ContextLabel: "Delete channel…", Action: &MenuCommand{Path: "/api/v1/channels/" + channel.ID, Method: "DELETE", Confirmation: "Delete this channel and its server history? This cannot be undone. Type the channel name to confirm.", ConfirmationValue: channel.Name, SubmitLabel: "Permanently delete channel", ConfirmationLabel: "Confirm channel name", Dangerous: true}},
+			}
+			if channel.Kind == "ai" {
+				v.Pages = append(v.Pages, MenuPage{ID: "ai", Label: "AI settings", ContextLabel: "AI settings", Builtin: "ai"})
 			}
 		}
 		writeJSON(w, 200, v)
