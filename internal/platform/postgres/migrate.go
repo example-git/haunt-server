@@ -11,7 +11,33 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-const SchemaVersion = 22
+var migrationFiles = [...]string{
+	"001_identity.sql",
+	"002_chat.sql",
+	"003_operations.sql",
+	"004_indexes.sql",
+	"005_customization.sql",
+	"006_gateway_reads.sql",
+	"007_emojis_animated_art.sql",
+	"008_persistent_sessions.sql",
+	"009_moderation.sql",
+	"010_password_reset.sql",
+	"011_channel_icons.sql",
+	"012_runtime_storage.sql",
+	"013_role_sections.sql",
+	"014_dm_storage.sql",
+	"015_dm_mls.sql",
+	"016_message_replies.sql",
+	"017_administrator.sql",
+	"018_voice_moderation.sql",
+	"019_history_pages.sql",
+	"020_embed_cache.sql",
+	"021_ai_channels.sql",
+	"022_ai_research.sql",
+	"023_ai_personality_handoff.sql",
+}
+
+const SchemaVersion = len(migrationFiles)
 
 // Migrate serializes schema changes at startup only. Normal requests use the
 // pool independently. The schema and installation identity commit together.
@@ -35,21 +61,19 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, instanceID string) error {
 	if version > SchemaVersion {
 		return fmt.Errorf("database schema is newer than this server")
 	}
-	for _, migration := range []struct {
-		version int
-		name    string
-	}{{1, "001_identity.sql"}, {2, "002_chat.sql"}, {3, "003_operations.sql"}, {4, "004_indexes.sql"}, {5, "005_customization.sql"}, {6, "006_gateway_reads.sql"}, {7, "007_emojis_animated_art.sql"}, {8, "008_persistent_sessions.sql"}, {9, "009_moderation.sql"}, {10, "010_password_reset.sql"}, {11, "011_channel_icons.sql"}, {12, "012_runtime_storage.sql"}, {13, "013_role_sections.sql"}, {14, "014_dm_storage.sql"}, {15, "015_dm_mls.sql"}, {16, "016_message_replies.sql"}, {17, "017_administrator.sql"}, {18, "018_voice_moderation.sql"}, {19, "019_history_pages.sql"}, {20, "020_embed_cache.sql"}, {21, "021_ai_channels.sql"}, {22, "022_ai_research.sql"}, {23, "023_ai_personality_handoff.sql"}} {
-		if version >= migration.version {
+	for index, filename := range migrationFiles {
+		nextVersion := index + 1
+		if version >= nextVersion {
 			continue
 		}
-		script, readErr := migrations.ReadFile("migrations/" + migration.name)
+		script, readErr := migrations.ReadFile("migrations/" + filename)
 		if readErr != nil {
 			return readErr
 		}
 		if _, err = tx.Exec(ctx, string(script)); err != nil {
-			return fmt.Errorf("migration %d: %w", migration.version, err)
+			return fmt.Errorf("migration %d: %w", nextVersion, err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO chatxo.schema_migrations(version) VALUES ($1)`, migration.version); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO chatxo.schema_migrations(version) VALUES ($1)`, nextVersion); err != nil {
 			return err
 		}
 	}
