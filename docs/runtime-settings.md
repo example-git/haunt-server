@@ -137,7 +137,7 @@ complete. The requester or a channel manager can cancel a response. Tool calls
 can continue across rounds for the life of the response. Intermediate results
 and provider replay belong to that response.
 
-Search uses the server’s bundled private SearXNG runtime. Operators can set
+Search uses Brave and DuckDuckGo through the server’s bundled private SearXNG runtime. Operators can set
 `HAUNT_DIFFBOT_KEY` for a fallback search when upstream engines fail.
 `read_url` turns public pages into Markdown without executing JavaScript.
 The reader tries a direct connection first and can use cached public proxy lists
@@ -145,8 +145,10 @@ for a failed route. An unavailable page returns an error for that tool call.
 
 Add a personality to configure its name, description, instructions and avatar.
 Members can mention it to select it for the channel. When a manager enables
-agent switching, the current personality finishes its response before the
-new selection takes effect. Removing the last personality restores the base identity.
+agent switching, the agent is instructed to switch only on an explicit request from the
+current user. The default takes effect after the current reply. A manager can instead
+select **During the current reply** to let the new personality continue immediately.
+Earlier text keeps its original author. Removing the last personality restores the base identity.
 
 Channels using Codex can generate images and edit images attached to a request
 or its direct reply target. Both tools authenticate with the selected Codex

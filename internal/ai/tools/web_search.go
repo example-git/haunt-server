@@ -213,7 +213,7 @@ func (r *Registry) searx(ctx context.Context, key searchParamsKey) ([]searchResu
 			URL     string
 			Content string
 		} `json:"results"`
-		Failed []json.RawMessage `json:"unresponsive_engines"`
+		Failed [][2]string `json:"unresponsive_engines"`
 	}
 	if err = decodeSearch(resp, &payload); err != nil {
 		return nil, err
@@ -226,7 +226,11 @@ func (r *Registry) searx(ctx context.Context, key searchParamsKey) ([]searchResu
 		out = appendResult(out, item.Title, item.URL, item.Content, key.limit)
 	}
 	if len(out) == 0 && len(payload.Failed) > 0 {
-		return nil, errors.New("search engines unavailable")
+		var failures []string
+		for _, engine := range payload.Failed {
+			failures = append(failures, bounded(engine[0], 48)+": "+bounded(engine[1], 96))
+		}
+		return nil, fmt.Errorf("no usable search results (%s)", strings.Join(failures, "; "))
 	}
 	return out, nil
 }

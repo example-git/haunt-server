@@ -1117,6 +1117,89 @@ func TestAgentSwitchCommitsAfterOriginalPersonalityFinishes(t *testing.T) {
 	f.accounting(t)
 }
 
+func TestSameReplyPersonalitySwitch(t *testing.T) {
+	f := fixture(t, 8<<20)
+	ctx := context.Background()
+	target, err := f.s.SavePreset(ctx, f.p, f.channel.ID, "", PresetInput{Name: "New speaker", Instructions: "Respond in rhymes."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := f.s.Settings(ctx, f.p, f.channel.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	immediate := true
+	settings.AllowAgentSwitch = true
+	settings.SwitchDuringReply = &immediate
+	if _, err = f.s.SaveSettings(ctx, f.p, f.channel.ID, settings.SettingsInput); err != nil {
+		t.Fatal(err)
+	}
+	// An older client saving an unrelated setting must retain the selected timing.
+	settings.SwitchDuringReply = nil
+	saved, err := f.s.SaveSettings(ctx, f.p, f.channel.ID, settings.SettingsInput)
+	if err != nil || saved.SwitchDuringReply == nil || !*saved.SwitchDuringReply {
+		t.Fatalf("lost switch timing after legacy save: %v", err)
+	}
+	f.send(t, "Please switch to New speaker and finish the answer.")
+	turn := f.claim(t)
+	f.send(t, "Queued while the first reply is running")
+	calls := 0
+	f.adapter.generate = func(ctx context.Context, req provider.Request, emit func(provider.Event) error) (provider.Response, error) {
+		calls++
+		if !strings.Contains(req.StructuralInstruction, "explicitly asks to switch") {
+			t.Fatal("missing user-request-only switch guidance")
+		}
+		advertised := false
+		for _, tool := range req.Tools {
+			if tool.Name == "switch_personality" && strings.Contains(tool.Description, "explicitly requested") && strings.Contains(tool.Description, "immediately") {
+				advertised = true
+			}
+		}
+		if !advertised {
+			t.Fatal("missing immediate switch tool guidance")
+		}
+		if calls == 1 {
+			if e := emit(provider.Event{Type: "text_delta", Text: "I will hand this over."}); e != nil {
+				return provider.Response{}, e
+			}
+			return provider.Response{Text: "I will hand this over.", Calls: []provider.ToolCall{{ID: "handoff", Name: "switch_personality", Arguments: json.RawMessage(`{"preset_id":"` + target.ID + `"}`)}}, Replay: []json.RawMessage{json.RawMessage(`{"id":"handoff"}`)}}, nil
+		}
+		if calls != 2 || !strings.Contains(req.Instructions, target.Instructions) || !strings.Contains(req.StructuralInstruction, "currently writing as New speaker") || len(req.ToolResults) != 1 || req.ToolResults[0].IsError || len(req.Replay) != 1 {
+			t.Fatalf("bad handoff instructions or continuation: %v", req.ToolResults)
+		}
+		current, err := f.s.Settings(ctx, f.p, f.channel.ID)
+		if err != nil || current.ActivePresetID != target.ID {
+			t.Fatal("switch did not take effect during the turn", err)
+		}
+		return provider.Response{Text: "Here is my answer."}, nil
+	}
+	f.s.execute(ctx, turn)
+	var bodies, authors []string
+	err = f.s.pool.QueryRow(ctx, `SELECT array_agg(body ORDER BY seq),array_agg(ai_author->>'id' ORDER BY seq) FROM chatxo.messages WHERE conversation_id=$1 AND author_id IS NULL`, f.channel.ID).Scan(&bodies, &authors)
+	if err != nil || len(bodies) != 2 || bodies[0] != "I will hand this over." || bodies[1] != "Here is my answer." || authors[0] != turn.snapshot.Author.ID || authors[1] != target.ID {
+		t.Fatalf("incorrect authored messages: %v %v %v", bodies, authors, err)
+	}
+	queued := f.claim(t)
+	adapter, credentials, err := f.s.credentials(ctx, queued.snapshot.AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := f.s.context(ctx, f.p, queued, adapter, credentials)
+	if err != nil || queued.snapshot.Author.ID != target.ID {
+		t.Fatal("queued selection:", err)
+	}
+	previous := []string{}
+	for _, msg := range req.Messages {
+		if msg.Role == "assistant" {
+			previous = append(previous, msg.Parts[0].Text)
+		}
+	}
+	if len(previous) != 2 || !strings.Contains(previous[0], bodies[0]) || !strings.Contains(previous[1], bodies[1]) {
+		t.Fatalf("queued response lost handoff history: %v", previous)
+	}
+	f.accounting(t)
+}
+
 func TestActivitySilenceAndRunMemory(t *testing.T) {
 	clock := time.Now()
 	activity := newRunActivity()

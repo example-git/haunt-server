@@ -5,6 +5,9 @@ package searchruntime
 import (
 	"context"
 	"net/http"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,5 +29,17 @@ func TestBundledSearch(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 404 {
 		t.Errorf("unexpected search HTTP status %d", resp.StatusCode)
+	}
+
+	// Check the defaults seen by an ordinary query using this release's SearXNG loader.
+	root := r.installed
+	cmd := exec.CommandContext(ctx, filepath.Join(root, "bin/loader"), "--library-path", filepath.Join(root, "lib"),
+		filepath.Join(root, "bin/python"), "-sB", "-c",
+		"from searx import settings\nprint(','.join(sorted(e['name'] for e in settings['engines'] if not e.get('disabled') and not e.get('inactive'))))")
+	cmd.Env = []string{"PYTHONHOME=" + root, "PYTHONPATH=" + filepath.Join(root, "app") + ":" + filepath.Join(root, "packages"),
+		"SEARXNG_SETTINGS_PATH=" + filepath.Join(r.socketDir, "settings.yml"), "SEARXNG_DATA_PATH=" + t.TempDir()}
+	out, err := cmd.Output()
+	if err != nil || strings.TrimSpace(string(out)) != "brave,duckduckgo" {
+		t.Fatalf("effective default search engines = %q, error = %v", out, err)
 	}
 }

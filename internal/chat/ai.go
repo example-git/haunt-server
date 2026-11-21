@@ -25,8 +25,8 @@ type AIAcceptance interface {
 
 var ErrAIStorageFull = errors.New("ai_storage_full")
 
-func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, body string, author AIAuthor, images ...string) (Message, error) {
-	if !identity.ValidID(conv) || !identity.ValidID(request) || !identity.ValidID(author.ID) || strings.TrimSpace(author.Name) == "" || !utf8.ValidString(author.Name) || utf8.RuneCountInString(author.Name) > 80 || strings.ContainsAny(author.Name, "\x00\r\n") || !utf8.ValidString(body) || strings.ContainsRune(body, 0) {
+func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, responseRequest, body string, author AIAuthor, images ...string) (Message, error) {
+	if !identity.ValidID(conv) || !identity.ValidID(request) || !identity.ValidID(responseRequest) || !identity.ValidID(author.ID) || strings.TrimSpace(author.Name) == "" || !utf8.ValidString(author.Name) || utf8.RuneCountInString(author.Name) > 80 || strings.ContainsAny(author.Name, "\x00\r\n") || !utf8.ValidString(body) || strings.ContainsRune(body, 0) {
 		return Message{}, identity.ErrInvalid
 	}
 	var kind string
@@ -72,7 +72,7 @@ func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, body stri
 	kind = "message.updated"
 	if create {
 		hash := sha256.Sum256([]byte(request))
-		_, err = tx.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,ai_author,seq,body,attachment_ids,created_at,request_id,request_hash,bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, m.ID, conv, author, m.Seq, body, m.Attachments, m.CreatedAt, request, hash[:], messageBytes(m))
+		_, err = tx.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,ai_author,seq,body,attachment_ids,created_at,request_id,request_hash,bytes,ai_response_request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11::uuid,$8::uuid))`, m.ID, conv, author, m.Seq, body, m.Attachments, m.CreatedAt, request, hash[:], messageBytes(m), responseRequest)
 		kind = "message.created"
 	} else {
 		_, err = tx.Exec(ctx, `UPDATE chatxo.messages SET body=$2,edited_at=$3,bytes=$4 WHERE id=$1`, m.ID, body, m.EditedAt, messageBytes(m))

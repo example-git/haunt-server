@@ -63,7 +63,7 @@ func (s *Service) Settings(ctx context.Context, p identity.Principal, id string)
 		if err := s.enforce(ctx, tx, id); err != nil {
 			return err
 		}
-		return tx.QueryRow(ctx, `SELECT s.channel_id,COALESCE(s.account_id::text,''),s.provider,s.model,s.instructions,s.name,s.avatar_url,s.max_bytes,s.allow_agent_switch,COALESCE(s.active_preset_id::text,''),s.revision,COALESCE(a.status,'disconnected') FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_accounts a ON a.id=s.account_id WHERE s.channel_id=$1`, id).Scan(&out.ChannelID, &out.AccountID, &out.Provider, &out.Model, &out.Instructions, &out.Name, &out.AvatarURL, &out.MaxBytes, &out.AllowAgentSwitch, &out.ActivePresetID, &out.Revision, &out.ConnectionStatus)
+		return tx.QueryRow(ctx, `SELECT s.channel_id,COALESCE(s.account_id::text,''),s.provider,s.model,s.instructions,s.name,s.avatar_url,s.max_bytes,s.allow_agent_switch,s.switch_during_reply,COALESCE(s.active_preset_id::text,''),s.revision,COALESCE(a.status,'disconnected') FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_accounts a ON a.id=s.account_id WHERE s.channel_id=$1`, id).Scan(&out.ChannelID, &out.AccountID, &out.Provider, &out.Model, &out.Instructions, &out.Name, &out.AvatarURL, &out.MaxBytes, &out.AllowAgentSwitch, &out.SwitchDuringReply, &out.ActivePresetID, &out.Revision, &out.ConnectionStatus)
 	})
 	return out, err
 }
@@ -121,7 +121,7 @@ func (s *Service) SaveSettings(ctx context.Context, p identity.Principal, id str
 		if v.AvatarURL != "" && v.AvatarURL != avatar {
 			return identity.ErrInvalid
 		}
-		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET account_id=$2,provider=$3,model=$4,instructions=$5,name=$6,max_bytes=$7,allow_agent_switch=$8,revision=revision+1 WHERE channel_id=$1`, id, nullable(v.AccountID), v.Provider, v.Model, v.Instructions, v.Name, v.MaxBytes, v.AllowAgentSwitch)
+		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET account_id=$2,provider=$3,model=$4,instructions=$5,name=$6,max_bytes=$7,allow_agent_switch=$8,switch_during_reply=COALESCE($9,switch_during_reply),revision=revision+1 WHERE channel_id=$1`, id, nullable(v.AccountID), v.Provider, v.Model, v.Instructions, v.Name, v.MaxBytes, v.AllowAgentSwitch, v.SwitchDuringReply)
 		if err != nil {
 			return err
 		}

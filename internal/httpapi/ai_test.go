@@ -82,7 +82,8 @@ func TestAIMessageAuthorshipRepliesAndInternalWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	author := chat.AIAuthor{ID: preset.ID, Name: preset.Name}
-	message, err := features.Chat.WriteAI(ctx, tx, channel.ID, identity.NewID(), "Hello, human.", author)
+	request := identity.NewID()
+	message, err := features.Chat.WriteAI(ctx, tx, channel.ID, request, request, "Hello, human.", author)
 	if err != nil {
 		t.Fatal(err)
 	}

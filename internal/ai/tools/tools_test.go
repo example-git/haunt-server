@@ -133,7 +133,7 @@ func TestSearchParsesBoundedResultsAndReportsChallenges(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if challenge.Load() {
-			fmt.Fprint(w, `{"results":[],"unresponsive_engines":[["engine","CAPTCHA"]]}`)
+			fmt.Fprint(w, `{"results":[],"unresponsive_engines":[["duckduckgo","CAPTCHA"],["brave","timeout"]]}`)
 			return
 		}
 		fmt.Fprint(w, `{"results":[{"url":"https://one.example.com/article","title":"One","content":"First snippet"},{"url":"https://two.example.com/","title":"Two","content":"Second snippet"}],"unresponsive_engines":[["engine","timeout"]]}`)
@@ -148,8 +148,8 @@ func TestSearchParsesBoundedResultsAndReportsChallenges(t *testing.T) {
 	}
 	challenge.Store(true)
 	result, err = execute(t, r, "web_search", `{"query":"a & b"}`)
-	if err == nil || !result.IsError || !strings.Contains(result.Content, "engines unavailable") {
-		t.Fatal("challenge reported as empty results")
+	if err == nil || !result.IsError || !strings.Contains(result.Content, "duckduckgo: CAPTCHA") || !strings.Contains(result.Content, "brave: timeout") {
+		t.Fatalf("missing search engine failure details: %+v", result)
 	}
 }
 

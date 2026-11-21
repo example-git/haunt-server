@@ -230,6 +230,7 @@ type claimedTurn struct {
 	epoch           int64
 	attempt         int
 	responseRequest string
+	messageRequest  string
 	pendingPreset   string
 	hadToolCall     bool
 }
@@ -292,6 +293,7 @@ func (s *Service) claim(ctx context.Context) (claimedTurn, error) {
 		return s.enforceProtected(ctx, tx, t.ChannelID, t.ID)
 	})
 	if err == nil {
+		t.messageRequest = t.responseRequest
 		s.leases[t.ChannelID] = t.responseRequest
 	}
 	return t, err
@@ -438,6 +440,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 		return
 	}
 	text := ""
+	priorTextBytes := 0
 	last := time.Time{}
 	var memory runMemory
 	for {
@@ -455,7 +458,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 			if (event.Type == "text" || event.Type == "text_delta") && event.Text != "" {
 				activity.set("provider", "", true)
 				text += event.Text
-				if len(text) > 65536 {
+				if priorTextBytes+len(text) > 65536 {
 					return ErrStorage
 				}
 				if time.Since(last) >= time.Second {
@@ -500,7 +503,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 				return
 			}
 		}
-		if len(text) > 65536 {
+		if priorTextBytes+len(text) > 65536 {
 			s.fail(parent, t, ErrStorage)
 			return
 		}
@@ -516,11 +519,13 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 		}
 		t.hadToolCall = true
 		req.ToolResults = nil
+		speakerChanged := false
 		for _, call := range response.Calls {
 			if _, err = s.checkExecution(ctx, t); err != nil {
 				s.fail(parent, t, err)
 				return
 			}
+			previousSpeaker := t.snapshot.Author.ID
 			result, e := s.dispatchTool(ctx, p, &t, call, activity)
 			if ctx.Err() != nil {
 				s.fail(parent, t, context.Cause(ctx))
@@ -530,7 +535,20 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 				s.fail(parent, t, e)
 				return
 			}
+			if previousSpeaker != t.snapshot.Author.ID {
+				speakerChanged = true
+				priorTextBytes += len(text)
+				text = ""
+				t.messageRequest = identity.NewID()
+				last = time.Time{}
+			}
 			req.ToolResults = append(req.ToolResults, result)
+		}
+		if speakerChanged {
+			if err := s.configureSpeaker(ctx, p, t, &req); err != nil {
+				s.fail(parent, t, err)
+				return
+			}
 		}
 		memory.advance(&req, response)
 	}
@@ -553,7 +571,7 @@ func (s *Service) checkpoint(ctx context.Context, t claimedTurn, text string) er
 			return err
 		}
 		if text != "" {
-			message, err := s.chat.WriteAI(ctx, tx, t.ChannelID, t.responseRequest, text, t.snapshot.Author)
+			message, err := s.chat.WriteAI(ctx, tx, t.ChannelID, t.messageRequest, t.responseRequest, text, t.snapshot.Author)
 			if err != nil {
 				return err
 			}

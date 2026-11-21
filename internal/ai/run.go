@@ -135,16 +135,7 @@ func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *cla
 		if json.Unmarshal(call.Arguments, &args) != nil || !identity.ValidID(args.PresetID) {
 			return toolFailure(call, "Choose a personality ID from this channel’s roster."), nil
 		}
-		var name string
-		err := s.pool.QueryRow(ctx, `SELECT p.name FROM chatxo.ai_channel_settings s JOIN chatxo.ai_presets p ON p.channel_id=s.channel_id WHERE s.channel_id=$1 AND s.allow_agent_switch AND p.id=$2`, t.ChannelID, args.PresetID).Scan(&name)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return toolFailure(call, "Personality switching is unavailable for that identity in this channel."), nil
-		}
-		if err != nil {
-			return provider.ToolResult{}, err
-		}
-		t.pendingPreset = args.PresetID
-		return provider.ToolResult{ID: call.ID, Name: call.Name, Content: "Requested " + name + " for subsequent turns after this reply completes."}, nil
+		return s.requestSwitch(ctx, t, args.PresetID, call)
 	default:
 		return s.tools.Execute(ctx, call)
 	}
@@ -154,27 +145,96 @@ func toolFailure(call provider.ToolCall, content string) provider.ToolResult {
 	return provider.ToolResult{ID: call.ID, Name: call.Name, Content: content, IsError: true}
 }
 
+type switchTarget struct {
+	author       chat.AIAuthor
+	instructions string
+	lastHuman    int64
+	immediate    bool
+}
+
+func loadSwitchTarget(ctx context.Context, tx pgx.Tx, channel, preset string) (switchTarget, error) {
+	var target switchTarget
+	err := tx.QueryRow(ctx, `SELECT p.id,p.name,p.avatar_url,p.instructions,s.last_human_selection_seq,s.switch_during_reply
+  FROM chatxo.ai_channel_settings s JOIN chatxo.ai_presets p ON p.channel_id=s.channel_id
+  WHERE s.channel_id=$1 AND s.allow_agent_switch AND p.id=$2 FOR UPDATE OF s,p`, channel, preset).
+		Scan(&target.author.ID, &target.author.Name, &target.author.AvatarURL, &target.instructions, &target.lastHuman, &target.immediate)
+	return target, err
+}
+
+func (s *Service) requestSwitch(ctx context.Context, t *claimedTurn, preset string, call provider.ToolCall) (provider.ToolResult, error) {
+	var target switchTarget
+	next := t.snapshot
+	err := s.transaction(ctx, func(tx pgx.Tx) error {
+		var valid bool
+		if err := tx.QueryRow(ctx, `SELECT t.status='running' AND t.history_epoch=$2 AND s.history_epoch=$2
+   FROM chatxo.ai_turns t JOIN chatxo.ai_channel_settings s ON t.channel_id=s.channel_id
+   WHERE t.id=$1 AND t.attempt=$3 AND t.response_request_id=$4 FOR UPDATE OF t,s`, t.ID, t.epoch, t.attempt, t.responseRequest).Scan(&valid); err != nil {
+			return err
+		}
+		if !valid {
+			return ErrHistoryChanged
+		}
+		var err error
+		target, err = loadSwitchTarget(ctx, tx, t.ChannelID, preset)
+		if err != nil || !target.immediate || target.author.ID == t.snapshot.Author.ID {
+			return err
+		}
+		next.Author, next.PresetInstructions = target.author, target.instructions
+		raw, err := json.Marshal(next)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET snapshot=$2,partial_text='',revision=revision+1 WHERE id=$1`, t.ID, raw); err != nil {
+			return err
+		}
+		if err = s.applySwitch(ctx, tx, *t, target); err != nil {
+			return err
+		}
+		if err = s.emitTurn(ctx, tx, t.ID); err != nil {
+			return err
+		}
+		return s.enforceProtected(ctx, tx, t.ChannelID, t.ID)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return toolFailure(call, "Personality switching is unavailable for that identity in this channel."), nil
+	}
+	if err != nil {
+		return provider.ToolResult{}, err
+	}
+	result := provider.ToolResult{ID: call.ID, Name: call.Name}
+	if target.immediate {
+		t.snapshot = next
+		t.pendingPreset = ""
+		result.Content = "You are now " + target.author.Name + ". Continue the current user's request as this personality."
+	} else {
+		t.pendingPreset = preset
+		result.Content = "Requested " + target.author.Name + " for subsequent turns after this reply completes."
+	}
+	return result, nil
+}
+
 func (s *Service) commitSwitch(ctx context.Context, tx pgx.Tx, t claimedTurn) error {
-	var author chat.AIAuthor
-	var instructions string
-	var lastHuman int64
-	err := tx.QueryRow(ctx, `SELECT p.id,p.name,p.avatar_url,p.instructions,s.last_human_selection_seq FROM chatxo.ai_channel_settings s JOIN chatxo.ai_presets p ON p.channel_id=s.channel_id WHERE s.channel_id=$1 AND s.allow_agent_switch AND p.id=$2 FOR UPDATE OF s,p`, t.ChannelID, t.pendingPreset).Scan(&author.ID, &author.Name, &author.AvatarURL, &instructions, &lastHuman)
+	target, err := loadSwitchTarget(ctx, tx, t.ChannelID, t.pendingPreset)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(author)
+	return s.applySwitch(ctx, tx, t, target)
+}
+
+func (s *Service) applySwitch(ctx context.Context, tx pgx.Tx, t claimedTurn, target switchTarget) error {
+	raw, err := json.Marshal(target.author)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET snapshot=snapshot || jsonb_build_object('author',$3::jsonb,'preset_instructions',$4::text)
-		WHERE channel_id=$1 AND status='queued' AND attempt=0 AND boundary_seq>$2 AND COALESCE((snapshot->>'selection_seq')::bigint,0)<=$2`, t.ChannelID, t.boundary, raw, instructions)
-	if err != nil || lastHuman > t.boundary {
+  WHERE channel_id=$1 AND status='queued' AND attempt=0 AND boundary_seq>$2 AND COALESCE((snapshot->>'selection_seq')::bigint,0)<=$2`, t.ChannelID, t.boundary, raw, target.instructions)
+	if err != nil || target.lastHuman > t.boundary {
 		return err
 	}
-	return s.selectPreset(ctx, tx, t.ChannelID, t.pendingPreset, nil)
+	return s.selectPreset(ctx, tx, t.ChannelID, target.author.ID, nil)
 }
 
 func (s *Service) selectPreset(ctx context.Context, tx pgx.Tx, channel, preset string, humanSeq *int64) error {

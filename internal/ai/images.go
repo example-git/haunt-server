@@ -104,7 +104,7 @@ func (s *Service) publishToolImage(ctx context.Context, p identity.Principal, t 
 		if !running {
 			return context.Canceled
 		}
-		m, err := s.chat.WriteAI(ctx, tx, t.ChannelID, generation, "", t.snapshot.Author, att.ID)
+		m, err := s.chat.WriteAI(ctx, tx, t.ChannelID, generation, t.responseRequest, "", t.snapshot.Author, att.ID)
 		if err != nil {
 			return err
 		}

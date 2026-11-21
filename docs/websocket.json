@@ -245,6 +245,12 @@
           "revision": {
             "format": "int64",
             "type": "integer"
+          },
+          "switch_during_reply": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         },
         "required": [
@@ -287,6 +293,12 @@
           },
           "provider": {
             "type": "string"
+          },
+          "switch_during_reply": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         },
         "required": [

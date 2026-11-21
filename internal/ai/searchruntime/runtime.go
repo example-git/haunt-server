@@ -113,7 +113,24 @@ func (r *Runtime) Client() (*http.Client, error) {
 	if err = os.WriteFile(filepath.Join(socketDir, "limiter.toml"), nil, 0600); err != nil {
 		return nil, err
 	}
-	settings := fmt.Sprintf("use_default_settings:\n  engines:\n    keep_only: [brave, duckduckgo]\nserver:\n  secret_key: '%s'\n  limiter: false\nsearch:\n  formats: [json]\noutgoing:\n  request_timeout: 8\n  max_request_timeout: 18\n", encodedSecret)
+	// keep_only selects which engines to load. Upstream disables Brave for default queries.
+	settings := fmt.Sprintf(`use_default_settings:
+  engines:
+    keep_only: [brave, duckduckgo]
+engines:
+  - name: brave
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+server:
+  secret_key: '%s'
+  limiter: false
+search:
+  formats: [json]
+outgoing:
+  request_timeout: 8
+  max_request_timeout: 18
+`, encodedSecret)
 	if err = os.WriteFile(config, []byte(settings), 0600); err != nil {
 		return nil, err
 	}
