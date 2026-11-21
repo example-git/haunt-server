@@ -25,7 +25,7 @@ type AIAcceptance interface {
 
 var ErrAIStorageFull = errors.New("ai_storage_full")
 
-func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, body string, author AIAuthor) (Message, error) {
+func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, body string, author AIAuthor, images ...string) (Message, error) {
 	if !identity.ValidID(conv) || !identity.ValidID(request) || !identity.ValidID(author.ID) || strings.TrimSpace(author.Name) == "" || !utf8.ValidString(author.Name) || utf8.RuneCountInString(author.Name) > 80 || strings.ContainsAny(author.Name, "\x00\r\n") || !utf8.ValidString(body) || strings.ContainsRune(body, 0) {
 		return Message{}, identity.ErrInvalid
 	}
@@ -47,7 +47,7 @@ func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, body stri
 	}
 	var oldBytes int64
 	if create {
-		m = Message{ID: identity.NewID(), ConversationID: conv, AIAuthor: &author, Body: body, Attachments: []string{}, RequestID: request}
+		m = Message{ID: identity.NewID(), ConversationID: conv, AIAuthor: &author, Body: body, Attachments: append([]string{}, images...), RequestID: request}
 		if err = tx.QueryRow(ctx, `UPDATE chatxo.conversations SET last_seq=last_seq+1 WHERE id=$1 RETURNING last_seq,clock_timestamp()`, conv).Scan(&m.Seq, &m.CreatedAt); err != nil {
 			return Message{}, err
 		}
@@ -80,6 +80,18 @@ func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, body stri
 	if err != nil {
 		return Message{}, err
 	}
+	if create {
+		for _, image := range images {
+			tag, e := tx.Exec(ctx, `UPDATE chatxo.attachments SET claimed=true,message_id=$1 WHERE id=$2 AND conversation_id=$3 AND ai_generation_id=$4 AND status='ready' AND NOT claimed`, m.ID, image, conv, request)
+			if e != nil {
+				return Message{}, e
+			}
+			if tag.RowsAffected() != 1 {
+				return Message{}, identity.ErrConflict
+			}
+		}
+	}
+
 	if err = changeText(ctx, tx, messageBytes(m)-oldBytes); err != nil {
 		return Message{}, err
 	}

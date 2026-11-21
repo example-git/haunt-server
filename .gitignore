@@ -98,3 +98,4 @@ Desktop.ini
 *.bak
 *.orig
 *.rej
+/internal/ai/searchruntime/bundle/*.tar.gz

@@ -81,6 +81,7 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 			return
 		}
 	}
+	out.RoundStart = len(out.Replay)
 	messages = append(messages, out.Replay...)
 	tools := []any{}
 	for _, t := range r.Tools {
@@ -103,7 +104,7 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 	headers.Set("X-Claude-Code-Session-Id", r.SessionID)
 	headers.Set("anthropic-version", "2023-06-01")
 	headers.Set("anthropic-beta", "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,effort-2025-11-24")
-	resp, err := wire.Request(ctx, c.HTTP, c.Endpoint, body, headers)
+	resp, err := wire.StreamRequest(ctx, c.HTTP, c.Endpoint, body, headers, emit)
 	if err != nil {
 		return out, err
 	}
@@ -175,11 +176,17 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 				}
 				s, _ := e.Delta["partial_json"].(string)
 				inputs[e.Index].WriteString(s)
+				if s != "" {
+					return wire.Emit(emit, provider.Event{Type: "tool_arguments"})
+				}
 			}
 			if field != "" {
 				s, _ := e.Delta[field].(string)
 				old, _ := block[field].(string)
 				block[field] = old + s
+				if field == "thinking" && s != "" {
+					return wire.Emit(emit, provider.Event{Type: "reasoning"})
+				}
 				if field == "text" {
 					out.Text += s
 					return wire.Emit(emit, provider.Event{Type: "text_delta", Text: s})

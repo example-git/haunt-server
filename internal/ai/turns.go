@@ -16,11 +16,11 @@ import (
 
 var presetMention = regexp.MustCompile(`<@ai:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>`)
 
-const turnColumns = `id,channel_id,trigger_message_id,actor_id,status,revision,partial_text,error_code,retry_at,created_at,updated_at`
+const turnColumns = `id,channel_id,trigger_message_id,actor_id,status,revision,partial_text,error_code,retry_at,created_at,updated_at,action,detail,last_progress_at`
 
 func scanTurn(row interface{ Scan(...any) error }) (Turn, error) {
 	var t Turn
-	err := row.Scan(&t.ID, &t.ChannelID, &t.TriggerMessageID, &t.ActorID, &t.Status, &t.Revision, &t.PartialText, &t.ErrorCode, &t.RetryAt, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.ChannelID, &t.TriggerMessageID, &t.ActorID, &t.Status, &t.Revision, &t.PartialText, &t.ErrorCode, &t.RetryAt, &t.CreatedAt, &t.UpdatedAt, &t.Action, &t.Detail, &t.LastProgressAt)
 	return t, err
 }
 func (s *Service) Accept(ctx context.Context, tx pgx.Tx, p identity.Principal, m chat.Message) error {
@@ -66,7 +66,7 @@ func (s *Service) Accept(ctx context.Context, tx pgx.Tx, p identity.Principal, m
 		if !exists {
 			return identity.ErrInvalid
 		}
-		if _, err = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET active_preset_id=$2,revision=revision+1 WHERE channel_id=$1`, ch.ID, selected); err != nil {
+		if err = s.selectPreset(ctx, tx, ch.ID, selected, &m.Seq); err != nil {
 			return err
 		}
 	}
@@ -76,7 +76,7 @@ func (s *Service) Accept(ctx context.Context, tx pgx.Tx, p identity.Principal, m
 	var snap snapshot
 	var epoch int64
 	snap.SessionID = p.SessionID
-	err = tx.QueryRow(ctx, `SELECT s.provider,COALESCE(s.account_id::text,''),s.model,s.instructions,COALESCE(p.id::text,s.channel_id::text),COALESCE(p.name,s.name),COALESCE(p.avatar_url,s.avatar_url),COALESCE(p.instructions,''),s.revision,s.history_epoch FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_presets p ON p.id=s.active_preset_id WHERE s.channel_id=$1 FOR UPDATE OF s`, ch.ID).Scan(&snap.Provider, &snap.AccountID, &snap.Model, &snap.Instructions, &snap.Author.ID, &snap.Author.Name, &snap.Author.AvatarURL, &snap.PresetInstructions, &snap.Revision, &epoch)
+	err = tx.QueryRow(ctx, `SELECT s.provider,COALESCE(s.account_id::text,''),s.model,s.instructions,COALESCE(p.id::text,s.channel_id::text),COALESCE(p.name,s.name),COALESCE(p.avatar_url,s.avatar_url),COALESCE(p.instructions,''),s.revision,s.history_epoch,s.last_human_selection_seq FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_presets p ON p.id=s.active_preset_id WHERE s.channel_id=$1 FOR UPDATE OF s`, ch.ID).Scan(&snap.Provider, &snap.AccountID, &snap.Model, &snap.Instructions, &snap.Author.ID, &snap.Author.Name, &snap.Author.AvatarURL, &snap.PresetInstructions, &snap.Revision, &epoch, &snap.SelectionSeq)
 	if err != nil {
 		return err
 	}
@@ -183,12 +183,12 @@ func (s *Service) changeTurn(ctx context.Context, p identity.Principal, ch, id s
 				return e
 			}
 			raw, _ = json.Marshal(snap)
-			_, e = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET status='queued',actor_id=$6,snapshot=$2,error_code='',retry_at=NULL,partial_text='',attempt=attempt+1,response_request_id=$4,reservation_bytes=$5,history_epoch=(SELECT history_epoch FROM chatxo.ai_channel_settings WHERE channel_id=$3),revision=revision+1,updated_at=now() WHERE id=$1`, id, raw, ch, identity.NewID(), reserve, p.User.ID)
+			_, e = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET status='queued',action='',detail='',last_progress_at=NULL,actor_id=$6,snapshot=$2,error_code='',retry_at=NULL,partial_text='',attempt=attempt+1,response_request_id=$4,reservation_bytes=$5,history_epoch=(SELECT history_epoch FROM chatxo.ai_channel_settings WHERE channel_id=$3),revision=revision+1,updated_at=now() WHERE id=$1`, id, raw, ch, identity.NewID(), reserve, p.User.ID)
 		} else {
 			if t.Status == "completed" || t.Status == "cancelled" {
 				return identity.ErrConflict
 			}
-			_, e = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET status='cancelled',reservation_bytes=0,error_code='',revision=revision+1,updated_at=now() WHERE id=$1`, id)
+			_, e = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET status='cancelled',action='',detail='',last_progress_at=NULL,reservation_bytes=0,error_code='',revision=revision+1,updated_at=now() WHERE id=$1`, id)
 		}
 		if e != nil {
 			return e
@@ -217,7 +217,10 @@ func (s *Service) emitTurn(ctx context.Context, tx pgx.Tx, id string) error {
 	if err != nil {
 		return err
 	}
-	return s.chat.Emit(ctx, tx, t.ChannelID, &t.TriggerMessageID, "ai.turn.updated", t)
+	if err = s.chat.Emit(ctx, tx, t.ChannelID, &t.TriggerMessageID, "ai.turn.updated", t); err != nil {
+		return err
+	}
+	return supersedeEvents(ctx, tx, t.TriggerMessageID, "ai.turn.updated")
 }
 
 type claimedTurn struct {
@@ -227,6 +230,8 @@ type claimedTurn struct {
 	epoch           int64
 	attempt         int
 	responseRequest string
+	pendingPreset   string
+	hadToolCall     bool
 }
 
 func (s *Service) claim(ctx context.Context) (claimedTurn, error) {
@@ -266,7 +271,7 @@ func (s *Service) claim(ctx context.Context) (claimedTurn, error) {
 			}
 			return s.enforceProtected(ctx, tx, t.ChannelID, t.ID)
 		}
-		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET status='running',revision=revision+1,updated_at=now() WHERE id=$1`, t.ID)
+		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET status='running',action='provider',detail='',last_progress_at=now(),revision=revision+1,updated_at=now() WHERE id=$1`, t.ID)
 		if err != nil {
 			return err
 		}
@@ -318,7 +323,7 @@ func (s *Service) worker(ctx context.Context) {
 }
 func (s *Service) recover(ctx context.Context) error {
 	err := s.transaction(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `UPDATE chatxo.ai_turns SET status='interrupted',reservation_bytes=0,error_code='remote_outcome_unknown',revision=revision+1,updated_at=now() WHERE status='running' RETURNING id`)
+		rows, err := tx.Query(ctx, `UPDATE chatxo.ai_turns SET status='interrupted',action='',detail='',last_progress_at=NULL,reservation_bytes=0,error_code='remote_outcome_unknown',revision=revision+1,updated_at=now() WHERE status='running' RETURNING id`)
 		if err != nil {
 			return err
 		}
@@ -373,12 +378,13 @@ func (s *Service) checkExecution(ctx context.Context, t claimedTurn) (identity.P
 	return p, nil
 }
 func (s *Service) execute(parent context.Context, t claimedTurn) {
-	timeout, cancelTimeout := context.WithTimeout(parent, 5*time.Minute)
-	ctx, stop := context.WithCancelCause(timeout)
+	ctx, stop := context.WithCancelCause(parent)
+	activity := newRunActivity()
 	cancel := func() { stop(context.Canceled) }
 	s.mu.Lock()
 	s.running[t.responseRequest] = cancel
 	s.mu.Unlock()
+	observed := t
 	monitorDone := make(chan struct{})
 	go func() {
 		defer close(monitorDone)
@@ -389,7 +395,13 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if _, err := s.checkExecution(ctx, t); err != nil {
+				if state, changed := activity.take(time.Now()); changed {
+					if err := s.publishActivity(ctx, observed, state); err != nil {
+						stop(err)
+						return
+					}
+				}
+				if _, err := s.checkExecution(ctx, observed); err != nil {
 					stop(err)
 					return
 				}
@@ -398,7 +410,6 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 	}()
 	defer func() {
 		cancel()
-		cancelTimeout()
 		<-monitorDone
 		s.mu.Lock()
 		delete(s.running, t.responseRequest)
@@ -428,21 +439,28 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 	}
 	text := ""
 	last := time.Time{}
-	for step := 0; step < 8; step++ {
+	var memory runMemory
+	for {
 		if _, err = s.checkExecution(ctx, t); err != nil {
 			s.fail(parent, t, err)
 			return
 		}
+		activity.set("provider", "", true)
 		callStart := len(text)
 		response, e := a.Generate(ctx, req, func(event provider.Event) error {
-			if event.Type == "text" || event.Type == "text_delta" {
+			switch event.Type {
+			case "submitted", "reasoning", "tool_arguments", "tool_call":
+				activity.set("provider", "", true)
+			}
+			if (event.Type == "text" || event.Type == "text_delta") && event.Text != "" {
+				activity.set("provider", "", true)
 				text += event.Text
 				if len(text) > 65536 {
 					return ErrStorage
 				}
 				if time.Since(last) >= time.Second {
 					last = time.Now()
-					return s.checkpoint(ctx, t, text, nil)
+					return s.checkpoint(ctx, t, text)
 				}
 			}
 			return nil
@@ -451,8 +469,24 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 			if cause := context.Cause(ctx); cause != nil {
 				e = cause
 			}
+			var limited *provider.Error
+			if ctx.Err() == nil && t.hadToolCall && len(text) == callStart && errors.As(e, &limited) && limited.Kind == provider.RateLimit {
+				delay := limited.RetryAfter
+				if delay <= 0 {
+					delay = time.Minute
+				}
+				activity.set("provider_rate_limited", "", false)
+				timer := time.NewTimer(delay)
+				select {
+				case <-timer.C:
+					continue
+				case <-ctx.Done():
+					timer.Stop()
+					e = context.Cause(ctx)
+				}
+			}
 			if text != "" {
-				s.checkpoint(parent, t, text, nil)
+				s.checkpoint(parent, t, text)
 			}
 			s.fail(parent, t, e)
 			return
@@ -470,58 +504,39 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 			s.fail(parent, t, ErrStorage)
 			return
 		}
-		raw, _ := json.Marshal(turnStep{Replay: response.Replay, Calls: response.Calls, Usage: &response.Usage})
-		if len(raw) > 1<<20 {
-			s.fail(parent, t, ErrStorage)
-			return
-		}
-		if err = s.checkpoint(ctx, t, text, raw); err != nil {
-			s.fail(parent, t, err)
-			return
+		if text != "" {
+			if err = s.checkpoint(ctx, t, text); err != nil {
+				s.fail(parent, t, err)
+				return
+			}
 		}
 		if len(response.Calls) == 0 {
 			s.finish(parent, t, "completed", "", nil)
 			return
 		}
-		if len(response.Calls) > 8 {
-			s.fail(parent, t, errors.New("tool_call_limit"))
-			return
-		}
-		req.Replay = response.Replay
+		t.hadToolCall = true
 		req.ToolResults = nil
 		for _, call := range response.Calls {
 			if _, err = s.checkExecution(ctx, t); err != nil {
 				s.fail(parent, t, err)
 				return
 			}
-			result, e := s.tools.Execute(ctx, call)
+			result, e := s.dispatchTool(ctx, p, &t, call, activity)
+			if ctx.Err() != nil {
+				s.fail(parent, t, context.Cause(ctx))
+				return
+			}
 			if e != nil && (!result.IsError || ctx.Err() != nil) {
 				s.fail(parent, t, e)
 				return
 			}
 			req.ToolResults = append(req.ToolResults, result)
 		}
-		results, _ := json.Marshal(turnStep{Results: req.ToolResults})
-		if len(results) > 1<<20 {
-			s.fail(parent, t, ErrStorage)
-			return
-		}
-		if err = s.checkpoint(ctx, t, text, results); err != nil {
-			s.fail(parent, t, err)
-			return
-		}
+		memory.advance(&req, response)
 	}
-	s.fail(parent, t, errors.New("tool_step_limit"))
 }
 
-type turnStep struct {
-	Replay  []json.RawMessage     `json:"replay,omitempty"`
-	Calls   []provider.ToolCall   `json:"calls,omitempty"`
-	Results []provider.ToolResult `json:"results,omitempty"`
-	Usage   *provider.Usage       `json:"usage,omitempty"`
-}
-
-func (s *Service) checkpoint(ctx context.Context, t claimedTurn, text string, step []byte) error {
+func (s *Service) checkpoint(ctx context.Context, t claimedTurn, text string) error {
 	if _, err := s.checkExecution(ctx, t); err != nil {
 		return err
 	}
@@ -538,27 +553,11 @@ func (s *Service) checkpoint(ctx context.Context, t claimedTurn, text string, st
 			return err
 		}
 		if text != "" {
-			if _, err := s.chat.WriteAI(ctx, tx, t.ChannelID, t.responseRequest, text, t.snapshot.Author); err != nil {
+			message, err := s.chat.WriteAI(ctx, tx, t.ChannelID, t.responseRequest, text, t.snapshot.Author)
+			if err != nil {
 				return err
 			}
-		}
-		if len(step) > 0 {
-			var record turnStep
-			if err := json.Unmarshal(step, &record); err != nil {
-				return err
-			}
-			if len(record.Replay) > 0 {
-				raw, _ := json.Marshal(record.Replay)
-				if len(raw) > 1<<20 {
-					return ErrStorage
-				}
-				if _, err := tx.Exec(ctx, `INSERT INTO chatxo.ai_turn_steps(turn_id,attempt,kind,data) VALUES($1,$2,'replay',$3) ON CONFLICT(turn_id,attempt) WHERE kind='replay' DO UPDATE SET data=excluded.data`, t.ID, t.attempt, raw); err != nil {
-					return err
-				}
-			}
-			record.Replay = nil
-			raw, _ := json.Marshal(record)
-			if _, err := tx.Exec(ctx, `INSERT INTO chatxo.ai_turn_steps(turn_id,attempt,data) VALUES($1,$2,$3)`, t.ID, t.attempt, raw); err != nil {
+			if err = supersedeEvents(ctx, tx, message.ID, "message.updated"); err != nil {
 				return err
 			}
 		}
@@ -605,6 +604,13 @@ func (s *Service) terminalAllowance(ctx context.Context, tx pgx.Tx, id string) (
 	return int64(len(payload)+64) + max(0, rowGrowth), err
 }
 
+type pendingFinish struct {
+	turn   claimedTurn
+	status string
+	code   string
+	retry  *time.Time
+}
+
 func (s *Service) finish(ctx context.Context, t claimedTurn, status, code string, retry *time.Time) {
 	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
@@ -627,9 +633,14 @@ func (s *Service) finish(ctx context.Context, t claimedTurn, status, code string
 				return err
 			}
 		}
-		r, err := tx.Exec(bounded, `UPDATE chatxo.ai_turns SET status=$2,reservation_bytes=CASE WHEN $2='waiting' THEN reservation_bytes ELSE 0 END,error_code=$3,retry_at=$4,revision=revision+1,updated_at=now() WHERE id=$1 AND status='running' AND attempt=$5 AND response_request_id=$6 AND history_epoch=$7`, t.ID, status, code, retry, t.attempt, t.responseRequest, t.epoch)
+		r, err := tx.Exec(bounded, `UPDATE chatxo.ai_turns SET status=$2,action='',detail='',last_progress_at=NULL,reservation_bytes=CASE WHEN $2='waiting' THEN reservation_bytes ELSE 0 END,error_code=$3,retry_at=$4,revision=revision+1,updated_at=now() WHERE id=$1 AND status='running' AND attempt=$5 AND response_request_id=$6 AND history_epoch=$7`, t.ID, status, code, retry, t.attempt, t.responseRequest, t.epoch)
 		if err != nil || r.RowsAffected() == 0 {
 			return err
+		}
+		if status == "completed" && t.pendingPreset != "" {
+			if err = s.commitSwitch(bounded, tx, t); err != nil {
+				return err
+			}
 		}
 		if err = s.emitTurn(bounded, tx, t.ID); err != nil {
 			return err
@@ -645,8 +656,16 @@ func (s *Service) finish(ctx context.Context, t claimedTurn, status, code string
 		}
 		return s.enforceProtected(bounded, tx, t.ChannelID, t.ID)
 	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err != nil {
 		slog.Error("AI turn final state could not be saved", "turn_id", t.ID, "error_code", errorCode(err))
+		if s.unfinished == nil {
+			s.unfinished = make(map[string]pendingFinish)
+		}
+		s.unfinished[t.responseRequest] = pendingFinish{t, status, code, retry}
+	} else {
+		delete(s.unfinished, t.responseRequest)
 	}
 }
 func errorCode(err error) string {
@@ -685,7 +704,7 @@ func (s *Service) fail(ctx context.Context, t claimedTurn, err error) {
 		}
 		if pe.Kind == provider.RateLimit {
 			var emitted bool
-			if e := s.pool.QueryRow(ctx, `SELECT partial_text<>'' OR EXISTS(SELECT 1 FROM chatxo.ai_turn_steps WHERE turn_id=$1 AND attempt=$2) FROM chatxo.ai_turns WHERE id=$1 AND attempt=$2 AND response_request_id=$3`, t.ID, t.attempt, t.responseRequest).Scan(&emitted); e != nil || emitted {
+			if e := s.pool.QueryRow(ctx, `SELECT partial_text<>'' FROM chatxo.ai_turns WHERE id=$1 AND attempt=$2 AND response_request_id=$3`, t.ID, t.attempt, t.responseRequest).Scan(&emitted); t.hadToolCall || e != nil || emitted {
 				s.finish(ctx, t, "interrupted", "remote_outcome_unknown", nil)
 				return
 			}

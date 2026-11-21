@@ -204,7 +204,7 @@ func TestRestartDoesNotRetryAmbiguousExecutionAndExplicitRetryPreservesPartial(t
 	ctx := context.Background()
 	f.send(t, "trigger")
 	turn := f.claim(t)
-	if err := f.s.checkpoint(ctx, turn, "partial", nil); err != nil {
+	if err := f.s.checkpoint(ctx, turn, "partial"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.s.recover(ctx); err != nil {
@@ -240,7 +240,7 @@ func TestHistoryEpochRejectsLatePersistence(t *testing.T) {
 	if _, err := f.ch.Edit(ctx, f.p, f.channel.ID, m.ID, "edited", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.checkpoint(ctx, turn, "stale answer", nil); !errors.Is(err, ErrHistoryChanged) {
+	if err := f.s.checkpoint(ctx, turn, "stale answer"); !errors.Is(err, ErrHistoryChanged) {
 		t.Fatalf("late output accepted: %v", err)
 	}
 	var count int
@@ -407,7 +407,7 @@ func TestRepeatedRetentionAndActiveReservation(t *testing.T) {
 	f.send(t, "active bounded reservation")
 	turn := f.claim(t)
 	oversize := strings.Repeat("x", 65536)
-	if err := f.s.checkpoint(ctx, turn, oversize, nil); !errors.Is(err, ErrStorage) {
+	if err := f.s.checkpoint(ctx, turn, oversize); !errors.Is(err, ErrStorage) {
 		t.Fatalf("oversized checkpoint error=%v", err)
 	}
 	f.s.fail(ctx, turn, ErrStorage)
@@ -481,7 +481,7 @@ func (t *testTools) Execute(context.Context, provider.ToolCall) (provider.ToolRe
 	t.calls++
 	return provider.ToolResult{ID: "call", Name: "read_url", Content: "upstream blocked", IsError: true}, errors.New("upstream blocked")
 }
-func TestToolContinuationPreservesAttributionSingleReplayAndRepeatedText(t *testing.T) {
+func TestToolContinuationPreservesAttributionAndReleasesTurnMemory(t *testing.T) {
 	f := fixture(t, 2<<20)
 	ctx := context.Background()
 	f.s.tools = &testTools{}
@@ -510,13 +510,9 @@ func TestToolContinuationPreservesAttributionSingleReplayAndRepeatedText(t *test
 		t.Fatalf("continuation output mismatch: %#v", runs[0])
 	}
 	var rows int
-	var replay []byte
-	err := f.s.pool.QueryRow(ctx, `SELECT count(*) FROM chatxo.ai_turn_steps WHERE turn_id=$1 AND kind='replay'`, turn.ID).Scan(&rows)
-	if err != nil || rows != 1 {
-		t.Fatalf("replay snapshots duplicated: %d %v", rows, err)
-	}
-	if err = f.s.pool.QueryRow(ctx, `SELECT data FROM chatxo.ai_turn_steps WHERE turn_id=$1 AND kind='replay'`, turn.ID).Scan(&replay); err != nil || !bytes.Contains(replay, []byte("second")) {
-		t.Fatal("native continuation not retained")
+	err := f.s.pool.QueryRow(ctx, `SELECT count(*) FROM chatxo.ai_turn_steps WHERE turn_id=$1`, turn.ID).Scan(&rows)
+	if err != nil || rows != 0 {
+		t.Fatalf("completed response retained tool payloads: %d %v", rows, err)
 	}
 	f.accounting(t)
 }
@@ -744,7 +740,7 @@ func TestCancelRetryFencesOldAttemptAndWaitsForProviderExit(t *testing.T) {
 	releaseOnce.Do(func() { close(release) })
 	awaitSignal(t, done, "old provider did not exit")
 	next := f.claim(t)
-	if err := f.s.checkpoint(ctx, old, "stale persisted text", nil); err == nil {
+	if err := f.s.checkpoint(ctx, old, "stale persisted text"); err == nil {
 		t.Fatal("old attempt persisted into retry")
 	}
 	f.s.finish(ctx, old, "failed", "stale_failure", nil)
@@ -1039,4 +1035,160 @@ func TestRateLimitRetryRequiresNoPriorOutput(t *testing.T) {
 			f.accounting(t)
 		})
 	}
+}
+
+func TestLongResearchUsesWorkingMemoryAndKeepsQuietTurn(t *testing.T) {
+	f := fixture(t, 2<<20)
+	ctx := context.Background()
+	f.send(t, "research")
+	turn := f.claim(t)
+	if _, err := f.s.pool.Exec(ctx, `UPDATE chatxo.ai_turns SET updated_at=now()-interval '10 minutes' WHERE id=$1`, turn.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	f.s.tools = &testTools{}
+	const rounds = 15
+	count := 0
+	f.adapter.generate = func(_ context.Context, r provider.Request, _ func(provider.Event) error) (provider.Response, error) {
+		count++
+		if count > 1 && (len(r.ToolResults) != 1 || !r.ToolResults[0].IsError) {
+			t.Fatalf("step %d lost the previous tool failure", count)
+		}
+		if count > rounds {
+			return provider.Response{Text: "finished"}, nil
+		}
+		return provider.Response{Calls: []provider.ToolCall{{ID: "call", Name: "read_url", Arguments: json.RawMessage(`{}`)}}, Replay: []json.RawMessage{json.RawMessage(`{"id":"call"}`)}}, nil
+	}
+	f.s.execute(ctx, turn)
+	runs, err := f.s.Runs(ctx, f.p, f.channel.ID)
+	if err != nil || len(runs) != 1 || runs[0].Status != "completed" || count != rounds+1 {
+		t.Fatalf("long research returned %v (%d requests): %v", runs, count, err)
+	}
+	f.accounting(t)
+}
+
+func TestAgentSwitchCommitsAfterOriginalPersonalityFinishes(t *testing.T) {
+	f := fixture(t, 8<<20)
+	ctx := context.Background()
+	requested, err := f.s.SavePreset(ctx, f.p, f.channel.ID, "", PresetInput{Name: "Agent choice", Instructions: "Agent instruction"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manual, err := f.s.SavePreset(ctx, f.p, f.channel.ID, "", PresetInput{Name: "Human choice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.s.pool.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET allow_agent_switch=true WHERE channel_id=$1`, f.channel.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.send(t, "choose another personality")
+	turn := f.claim(t)
+	inherited := f.send(t, "already waiting")
+	explicit := f.send(t, "<@ai:"+manual.ID+"> human choice")
+	after := f.send(t, "after human choice")
+	n := 0
+	f.adapter.generate = func(_ context.Context, r provider.Request, _ func(provider.Event) error) (provider.Response, error) {
+		n++
+		if !strings.Contains(r.Instructions, turn.snapshot.Author.Name) {
+			t.Fatal("current speaker was changed")
+		}
+		if n == 1 {
+			return provider.Response{Calls: []provider.ToolCall{{ID: "select", Name: "switch_personality", Arguments: json.RawMessage(`{"preset_id":"` + requested.ID + `"}`)}}}, nil
+		}
+		if len(r.ToolResults) != 1 || r.ToolResults[0].IsError {
+			t.Fatal("switch was not staged")
+		}
+		return provider.Response{Text: "done"}, nil
+	}
+	f.s.execute(ctx, turn)
+	chosen := map[string]string{turn.TriggerMessageID: turn.snapshot.Author.ID, inherited.ID: requested.ID, explicit.ID: manual.ID, after.ID: manual.ID}
+	for trigger, want := range chosen {
+		var id string
+		if err = f.s.pool.QueryRow(ctx, `SELECT snapshot->'author'->>'id' FROM chatxo.ai_turns WHERE trigger_message_id=$1`, trigger).Scan(&id); err != nil || id != want {
+			t.Fatalf("trigger %s expected %s got %s (%v)", trigger, want, id, err)
+		}
+	}
+	settings, err := f.s.Settings(ctx, f.p, f.channel.ID)
+	if err != nil || settings.ActivePresetID != manual.ID {
+		t.Fatalf("later explicit selection lost: %+v %v", settings, err)
+	}
+	f.accounting(t)
+}
+
+func TestActivitySilenceAndRunMemory(t *testing.T) {
+	clock := time.Now()
+	activity := newRunActivity()
+	activity.current.progress = clock.Add(-3 * time.Minute)
+	if state, changed := activity.take(clock); !changed || state.action != "waiting_for_provider" {
+		t.Fatalf("quiet: %+v", state)
+	}
+	activity.set("waiting_for_slot", "source", false)
+	if state, _ := activity.take(clock.Add(5 * time.Minute)); state.action != "waiting_for_slot" {
+		t.Fatalf("queued: %+v", state)
+	}
+	activity.set("provider", "", true)
+	activity.current.progress = clock.Add(5*time.Minute + time.Second)
+	if state, _ := activity.take(clock.Add(5*time.Minute + 2*time.Second)); state.action != "provider" {
+		t.Fatalf("progress: %+v", state)
+	}
+	req := provider.Request{ToolResults: []provider.ToolResult{{Name: "read_url", ID: "open", Content: "new result"}}}
+	history := make([]json.RawMessage, 129)
+	for i := range history {
+		history[i] = json.RawMessage(`{"type":"done"}`)
+	}
+	history[128] = json.RawMessage(`{"pending":"open"}`)
+	m := runMemory{notes: []string{"earlier result on the original page"}}
+	m.advance(&req, provider.Response{RoundStart: 128, Replay: history})
+	if len(req.Replay) != 1 || !bytes.Contains(req.Replay[0], []byte("open")) || !strings.Contains(req.ToolResults[0].Content, "earlier result") || !strings.Contains(req.ToolResults[0].Content, "new result") {
+		t.Fatalf("invalid compaction %+v", req)
+	}
+}
+
+func TestSwitchRequiresEnabledAtRequestAndSuccessfulCompletion(t *testing.T) {
+	f := fixture(t, 8<<20)
+	ctx := context.Background()
+	target, err := f.s.SavePreset(ctx, f.p, f.channel.ID, "", PresetInput{Name: "Next"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := provider.ToolCall{ID: "choose", Name: "switch_personality", Arguments: json.RawMessage(`{"preset_id":"` + target.ID + `"}`)}
+	for _, scenario := range []string{"disabled", "disabled_after_request", "provider_error", "success"} {
+		t.Run(scenario, func(t *testing.T) {
+			if _, err = f.s.pool.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET allow_agent_switch=$2 WHERE channel_id=$1`, f.channel.ID, scenario != "disabled"); err != nil {
+				t.Fatal(err)
+			}
+			f.send(t, scenario)
+			turn := f.claim(t)
+			n := 0
+			f.adapter.generate = func(_ context.Context, r provider.Request, _ func(provider.Event) error) (provider.Response, error) {
+				n++
+				if n == 1 {
+					return provider.Response{Calls: []provider.ToolCall{call}}, nil
+				}
+				if len(r.ToolResults) != 1 || r.ToolResults[0].IsError != (scenario == "disabled") {
+					t.Fatalf("unexpected switch result: %+v", r.ToolResults)
+				}
+				if scenario == "provider_error" {
+					return provider.Response{}, errors.New("fixture stream failed")
+				}
+				if scenario == "disabled_after_request" {
+					if _, err := f.s.pool.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET allow_agent_switch=false WHERE channel_id=$1`, f.channel.ID); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return provider.Response{Text: "finished as original speaker"}, nil
+			}
+			f.s.execute(ctx, turn)
+			settings, e := f.s.Settings(ctx, f.p, f.channel.ID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if (settings.ActivePresetID == target.ID) != (scenario == "success") {
+				t.Fatalf("selected %q", settings.ActivePresetID)
+			}
+		})
+	}
+	f.accounting(t)
 }

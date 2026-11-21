@@ -207,31 +207,18 @@ func (s *Service) pruneBudget(ctx context.Context, tx pgx.Tx, id string, target 
 	}
 }
 func (s *Service) Maintain(ctx context.Context) error {
+	s.mu.Lock()
+	pending := make([]pendingFinish, 0, len(s.unfinished))
+	for _, v := range s.unfinished {
+		pending = append(pending, v)
+	}
+	s.mu.Unlock()
+	for _, v := range pending {
+		s.finish(ctx, v.turn, v.status, v.code, v.retry)
+	}
 	return s.transaction(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM chatxo.ai_oauth_sessions WHERE expires_at<=now() OR consumed_at<now()-interval '1 hour'`); err != nil {
 			return err
-		}
-		rows, err := tx.Query(ctx, `UPDATE chatxo.ai_turns SET status='interrupted',reservation_bytes=0,error_code='remote_outcome_unknown',revision=revision+1,updated_at=now() WHERE status='running' AND updated_at<now()-interval '7 minutes' RETURNING id`)
-		if err != nil {
-			return err
-		}
-		var changed []string
-		for rows.Next() {
-			var id string
-			if err = rows.Scan(&id); err != nil {
-				rows.Close()
-				return err
-			}
-			changed = append(changed, id)
-		}
-		rows.Close()
-		if err = rows.Err(); err != nil {
-			return err
-		}
-		for _, id := range changed {
-			if err = s.emitTurn(ctx, tx, id); err != nil {
-				return err
-			}
 		}
 		return s.enforce(ctx, tx, "")
 	})

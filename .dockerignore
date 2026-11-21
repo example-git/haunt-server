@@ -8,6 +8,8 @@
 !webclient_disabled.go
 !cmd/**
 !internal/**
+internal/ai/searchruntime/bundle/*.tar.gz
+!scripts/build-search-runtime.py
 !deploy/container/**
 !client/package.json
 !client/package-lock.json

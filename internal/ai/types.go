@@ -14,19 +14,21 @@ const DefaultChannelMaxBytes int64 = 64 << 20
 const DefaultGlobalMaxBytes int64 = 128 << 20
 
 type Options struct {
+	DiffbotKey      string `json:"-"`
 	InstanceID      string
 	DataDir         string
 	ChannelMaxBytes int64
 	GlobalMaxBytes  int64
 }
 type SettingsInput struct {
-	AccountID    string `json:"account_id"`
-	Provider     string `json:"provider"`
-	Model        string `json:"model"`
-	Instructions string `json:"instructions"`
-	Name         string `json:"name"`
-	AvatarURL    string `json:"avatar_url,omitempty"`
-	MaxBytes     int64  `json:"max_bytes"`
+	AllowAgentSwitch bool   `json:"allow_agent_switch"`
+	AccountID        string `json:"account_id"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	Instructions     string `json:"instructions"`
+	Name             string `json:"name"`
+	AvatarURL        string `json:"avatar_url,omitempty"`
+	MaxBytes         int64  `json:"max_bytes"`
 }
 type Settings struct {
 	SettingsInput
@@ -36,6 +38,9 @@ type Settings struct {
 	ConnectionStatus string `json:"connection_status"`
 }
 type PresetInput struct {
+	Description  string `json:"description"`
+	AvatarData   []byte `json:"avatar_data,omitempty"`
+	RequestID    string `json:"request_id,omitempty"`
 	Name         string `json:"name"`
 	AvatarURL    string `json:"avatar_url,omitempty"`
 	Instructions string `json:"instructions"`
@@ -72,6 +77,9 @@ type OAuthCompleteInput struct {
 	State string `json:"state"`
 }
 type Turn struct {
+	Action           string     `json:"action,omitempty"`
+	Detail           string     `json:"detail,omitempty"`
+	LastProgressAt   *time.Time `json:"last_progress_at,omitempty"`
 	ID               string     `json:"id"`
 	ChannelID        string     `json:"channel_id"`
 	TriggerMessageID string     `json:"trigger_message_id"`
@@ -94,6 +102,7 @@ type Usage struct {
 	PrunedThrough    int64 `json:"pruned_through"`
 }
 type snapshot struct {
+	SelectionSeq       int64         `json:"selection_seq"`
 	PresetInstructions string        `json:"preset_instructions"`
 	Provider           string        `json:"provider"`
 	AccountID          string        `json:"account_id"`

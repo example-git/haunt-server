@@ -21,7 +21,8 @@ func fixture(t *testing.T, handler http.HandlerFunc) (*Registry, *atomic.Int32) 
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
 	r := New()
-	r.searchEndpoint = "https://search.example.com/lite/"
+	r.searchEndpoint = "https://search.example.com/search"
+	r.searchClient = r.client
 	calls := &atomic.Int32{}
 	transport := r.client.Transport.(*http.Transport)
 	transport.TLSClientConfig = server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
@@ -130,12 +131,12 @@ func TestSearchParsesBoundedResultsAndReportsChallenges(t *testing.T) {
 		if r.URL.Query().Get("q") != "a & b" {
 			t.Error("query not encoded")
 		}
-		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Type", "application/json")
 		if challenge.Load() {
-			fmt.Fprint(w, `<form class="anomaly-modal">challenge</form>`)
+			fmt.Fprint(w, `{"results":[],"unresponsive_engines":[["engine","CAPTCHA"]]}`)
 			return
 		}
-		fmt.Fprint(w, `<table><tr><td><a class="result-link" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fone.example.com%2Farticle">One</a></td></tr><tr><td class="result-snippet">First <b>snippet</b></td></tr><tr><td><a class="result-link" href="https://two.example.com/">Two</a></td></tr><tr><td class="result-snippet">Second snippet</td></tr></table>`)
+		fmt.Fprint(w, `{"results":[{"url":"https://one.example.com/article","title":"One","content":"First snippet"},{"url":"https://two.example.com/","title":"Two","content":"Second snippet"}],"unresponsive_engines":[["engine","timeout"]]}`)
 	})
 	result, err := execute(t, r, "web_search", `{"query":"a & b","max_results":1}`)
 	if err != nil {
@@ -147,7 +148,97 @@ func TestSearchParsesBoundedResultsAndReportsChallenges(t *testing.T) {
 	}
 	challenge.Store(true)
 	result, err = execute(t, r, "web_search", `{"query":"a & b"}`)
-	if err == nil || !result.IsError || !strings.Contains(result.Content, "bot challenge") {
+	if err == nil || !result.IsError || !strings.Contains(result.Content, "engines unavailable") {
 		t.Fatal("challenge reported as empty results")
+	}
+}
+
+func TestCancelledFetchSlotIsAToolError(t *testing.T) {
+	r := New()
+	for i := 0; i < cap(r.slots); i++ {
+		r.slots <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	waiting := false
+	ctx = WithActivity(ctx, func(state, detail string) {
+		if state == "waiting_for_slot" && detail == "public.example.com" {
+			waiting = true
+			cancel()
+		}
+	})
+	result, err := r.Execute(ctx, provider.ToolCall{ID: "queued", Name: "read_url", Arguments: json.RawMessage(`{"url":"https://public.example.com/a"}`)})
+	if !waiting || err == nil || !result.IsError || !strings.Contains(result.Content, "https://public.example.com/a") {
+		t.Fatalf("lost queued fetch failure: %#v %v", result, err)
+	}
+}
+
+func TestValidEmptySearchAndFetchRetryDelay(t *testing.T) {
+	r, calls := fixture(t, func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/search" {
+			fmt.Fprint(w, `{"results":[],"unresponsive_engines":[]}`)
+			return
+		}
+		w.Header().Set("Retry-After", "180")
+		w.WriteHeader(429)
+	})
+	r.diffbotKey = "unused-on-empty"
+	result, err := execute(t, r, "web_search", `{"query":"nothing"}`)
+	if err != nil || result.Content != "[]" {
+		t.Fatalf("valid empty search became an outage: %#v %v", result, err)
+	}
+	for i := 0; i < 2; i++ {
+		result, err = execute(t, r, "read_url", `{"url":"https://cooldown.example.com/page"}`)
+		if err == nil || !result.IsError {
+			t.Fatalf("missing retry delay: %v", result)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("retried despite source cooldown (%d connections)", calls.Load())
+	}
+}
+
+func TestQueuedIdenticalSearchesSurviveOneCancellation(t *testing.T) {
+	var lookups atomic.Int32
+	r, _ := fixture(t, func(w http.ResponseWriter, _ *http.Request) { lookups.Add(1); fmt.Fprint(w, `{"results":[]}`) })
+	for range cap(r.slots) {
+		r.slots <- struct{}{}
+	}
+	first, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	type observation struct {
+		state       string
+		participant int
+	}
+	states := make(chan observation, 8)
+	outcomes := make(chan int, 2)
+	start := func(ctx context.Context, id int) {
+		go func() {
+			ctx = WithActivity(ctx, func(state, detail string) { states <- observation{state, id} })
+			_, err := r.search(ctx, searchParams{Query: "query"})
+			if (id == 1 && err == nil) || (id == 2 && err != nil) {
+				outcomes <- 0
+				return
+			}
+			outcomes <- id
+		}()
+	}
+	start(first, 1)
+	if got := <-states; got != (observation{"waiting_for_slot", 1}) {
+		t.Fatal(got)
+	}
+	start(t.Context(), 2)
+	if got := <-states; got != (observation{"waiting_for_slot", 2}) {
+		t.Fatal(got)
+	}
+	cancel()
+	if got := <-outcomes; got != 1 {
+		t.Fatal("canceled search did not exit", got)
+	}
+	<-r.slots
+	if got := <-states; got != (observation{"tool_running", 2}) {
+		t.Fatal(got)
+	}
+	if got := <-outcomes; got != 2 || lookups.Load() != 1 {
+		t.Fatal("remaining caller lost the shared search", got, lookups.Load())
 	}
 }

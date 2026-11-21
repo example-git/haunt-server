@@ -29,6 +29,7 @@ type Service struct {
 	accounts    map[string]*sync.Mutex
 	running     map[string]context.CancelFunc
 	leases      map[string]string
+	unfinished  map[string]pendingFinish
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 }
@@ -64,6 +65,14 @@ func (s *Service) Start(parent context.Context) error {
 		return err
 	}
 	ctx, cancel := context.WithCancel(parent)
+	if lifecycle, ok := s.tools.(interface {
+		Start(context.Context, string, string) error
+	}); ok {
+		if err = lifecycle.Start(ctx, s.options.DataDir, s.options.DiffbotKey); err != nil {
+			cancel()
+			return err
+		}
+	}
 	s.cancel = cancel
 	for i := 0; i < 4; i++ {
 		s.wg.Add(1)
@@ -95,6 +104,9 @@ func (s *Service) Close() {
 	}
 	s.mu.Unlock()
 	s.wg.Wait()
+	if lifecycle, ok := s.tools.(interface{ Close() }); ok {
+		lifecycle.Close()
+	}
 }
 func (s *Service) transaction(ctx context.Context, fn func(pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
@@ -115,12 +127,12 @@ func (s *Service) channel(ctx context.Context, p identity.Principal, id string, 
 	if err != nil {
 		return identity.Channel{}, err
 	}
-	if manage && !p.Can(identity.ManageChannels) {
-		return identity.Channel{}, identity.ErrForbidden
-	}
 	ch, err := s.ids.Channel(ctx, p, id)
 	if err != nil {
 		return ch, err
+	}
+	if manage && ch.Permissions&identity.ManageChannels == 0 {
+		return ch, identity.ErrForbidden
 	}
 	if ch.Kind != "ai" {
 		return ch, identity.ErrInvalid

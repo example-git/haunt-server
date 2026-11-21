@@ -26,6 +26,7 @@ type Policy struct {
 }
 
 type Config struct {
+	DiffbotKey              string `json:"-"`
 	InstanceID              string
 	Name                    string
 	PublicURL               string
@@ -89,6 +90,7 @@ func Load() (Config, error) { return LoadValues(Environment()) }
 func LoadValues(values map[string]string) (Config, error) {
 	e := source(values)
 	var c Config
+	c.DiffbotKey = strings.TrimSpace(e.get("HAUNT_DIFFBOT_KEY"))
 	var err error
 	for _, item := range []struct {
 		key string

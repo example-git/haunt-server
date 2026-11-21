@@ -1,0 +1,6 @@
+{
+  "image": "ghcr.io/searxng/searxng@sha256:fc1d81d7e9d04d3c8b3e23c7162feddf5c3d6aecd32e67a56eaabcb8d8747f79",
+  "source": "https://github.com/searxng/searxng/tree/c6ee3e9fd0235004a694e63720efc869bb1e3594",
+  "linux/amd64": "sha256:27c6f6eca6aa5284eb8ec6ec40eee787cc4fe3014fad0c82059991a631ea741f",
+  "linux/arm64": "sha256:a9a1a03161faed3d8819f0b53f3e051a4aeda4876bfc7b75d5d7d24214f42020"
+}

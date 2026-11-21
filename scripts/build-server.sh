@@ -6,6 +6,7 @@ if [ ! -f client/package.json ]; then
     exit 1
 fi
 (cd client && npm ci && npm run build)
+python3 scripts/build-search-runtime.py "$(go env GOARCH)"
 mkdir -p bin
 CGO_ENABLED=0 go build -tags webclient -trimpath -o bin/haunt-server ./cmd/haunt
 echo 'Built bin/haunt-server with the web client embedded.'

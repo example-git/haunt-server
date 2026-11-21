@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/example-git/haunt-server/internal/publichttp"
@@ -36,38 +39,32 @@ type page struct {
 
 func (r *Registry) fetch(ctx context.Context, address string) ([]byte, *url.URL, string, error) {
 	u, err := publichttp.ParseURL(address)
+	if err == nil {
+		if !publichttp.PublicHost(u.Hostname()) {
+			err = publichttp.ErrUnavailable
+		}
+		if ip, e := netip.ParseAddr(u.Hostname()); e == nil && !publichttp.PublicIP(ip) {
+			err = publichttp.ErrUnavailable
+		}
+	}
 	if err != nil {
 		return nil, nil, "", errors.New("URL must use public HTTP(S), without credentials or a nonstandard port")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	b, final, typ, eligible, err := r.fetchPage(ctx, r.client, u)
+	if err != nil && eligible && ctx.Err() == nil {
+		for _, relay := range r.proxies.candidates() {
+			cl := publichttp.PageClient(&relay)
+			b, final, typ, eligible, err = r.fetchPage(ctx, cl, u)
+			cl.CloseIdleConnections()
+			if err == nil || !eligible || ctx.Err() != nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		return nil, nil, "", err
 	}
-	req.Header.Set("User-Agent", browserUA)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	resp, err := r.client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, nil, "", ctx.Err()
-		}
-		return nil, nil, "", errors.New("public page is unavailable or its network destination is blocked")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		if resp.StatusCode == 202 || resp.StatusCode == 429 {
-			return nil, nil, "", errors.New("source blocked or rate limited the request")
-		}
-		return nil, nil, "", fmt.Errorf("source returned HTTP %d", resp.StatusCode)
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxInputBytes+1))
-	if err != nil {
-		return nil, nil, "", errors.New("could not read source page")
-	}
-	if len(b) > maxInputBytes {
-		return nil, nil, "", errors.New("source page exceeds 2 MiB input limit")
-	}
-	kind := resp.Header.Get("Content-Type")
+	kind := typ
 	if kind == "" {
 		kind = http.DetectContentType(b)
 	}
@@ -92,7 +89,83 @@ func (r *Registry) fetch(ctx context.Context, address string) ([]byte, *url.URL,
 	if !utf8.Valid(b) {
 		return nil, nil, "", errors.New("source text is not UTF-8")
 	}
-	return b, resp.Request.URL, mediaType, nil
+	return b, final, mediaType, nil
+}
+func (r *Registry) cooldown(u *url.URL) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if until := r.originRetry[u.Host]; time.Now().Before(until) {
+		return fmt.Errorf("source requested a retry after %s", until.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+func (r *Registry) fetchPage(ctx context.Context, cl *http.Client, u *url.URL) ([]byte, *url.URL, string, bool, error) {
+	if err := r.cooldown(u); err != nil {
+		return nil, nil, "", false, err
+	}
+	client := *cl
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := cl.CheckRedirect(req, via); err != nil {
+			return err
+		}
+		return r.cooldown(req.URL)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, nil, "", false, err
+	}
+	req.Header.Set("User-Agent", browserUA)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	resp, err := client.Do(req)
+	if err != nil {
+		var network *net.OpError
+		var networkTimeout net.Error
+		eligible := ctx.Err() == nil && (errors.As(err, &network) || errors.Is(err, io.EOF) || (errors.As(err, &networkTimeout) && networkTimeout.Timeout()))
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return nil, nil, "", eligible, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		if value := resp.Header.Get("Retry-After"); value != "" {
+			if until := retryAfter(value); until.After(time.Now()) {
+				r.mu.Lock()
+				for k, t := range r.originRetry {
+					if time.Now().After(t) {
+						delete(r.originRetry, k)
+					}
+				}
+				r.originRetry[resp.Request.URL.Host] = until
+				r.mu.Unlock()
+			}
+			return nil, nil, "", false, fmt.Errorf("source returned HTTP %d; Retry-After: %s", resp.StatusCode, bounded(value, 128))
+		}
+		retry := resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout
+		return nil, nil, "", retry, fmt.Errorf("source returned HTTP %d", resp.StatusCode)
+	}
+	body := &idleBody{body: resp.Body}
+	b, err := io.ReadAll(io.LimitReader(body, maxInputBytes+1))
+	if err != nil {
+		return nil, nil, "", true, err
+	}
+	if len(b) > maxInputBytes {
+		return nil, nil, "", false, errors.New("source page exceeds 2 MiB input limit")
+	}
+	return b, resp.Request.URL, resp.Header.Get("Content-Type"), false, nil
+}
+
+type idleBody struct{ body io.ReadCloser }
+
+func (r *idleBody) Read(buf []byte) (int, error) {
+	timer := time.AfterFunc(15*time.Second, func() { r.body.Close() })
+	n, err := r.body.Read(buf)
+	if !timer.Stop() {
+		return n, errors.New("source returned no body data for 15 seconds")
+	}
+	return n, err
 }
 func (r *Registry) readURL(ctx context.Context, p readParams) (page, error) {
 	limit := 32768

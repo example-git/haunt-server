@@ -102,7 +102,7 @@ func (f *Features) aiRoutes(a *api, mux routeRegistrar) {
 		}
 		mux.HandleFunc(method+path, a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 			var input ai.PresetInput
-			if err := decodeLimit(w, r, &input, 65536); err != nil {
+			if err := decodeLimit(w, r, &input, (identity.MaxAIAvatarInput+2)/3*4+65536); err != nil {
 				a.fail(w, r, err)
 				return
 			}
@@ -139,7 +139,7 @@ func (f *Features) aiRoutes(a *api, mux routeRegistrar) {
 	}
 	for _, path := range []string{"/api/v1/channels/{id}/ai/avatar", "/api/v1/channels/{id}/ai/presets/{preset}/avatar"} {
 		mux.HandleFunc("PUT "+path, a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
-			raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, identity.MaxArtBytes))
+			raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, identity.MaxAIAvatarInput))
 			if err != nil {
 				a.fail(w, r, identity.ErrInvalid)
 				return

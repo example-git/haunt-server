@@ -11,12 +11,22 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY client/ ./
 RUN npm run build
 
+FROM --platform=$TARGETPLATFORM ghcr.io/searxng/searxng@sha256:fc1d81d7e9d04d3c8b3e23c7162feddf5c3d6aecd32e67a56eaabcb8d8747f79 AS searxng
+FROM --platform=$BUILDPLATFORM python:3.14-alpine3.23 AS search-payload
+WORKDIR /src
+COPY scripts/build-search-runtime.py scripts/
+COPY internal/ai/searchruntime/bundle/source.json internal/ai/searchruntime/bundle/
+ARG TARGETARCH
+RUN --mount=from=searxng,source=/,target=/upstream,readonly \
+    python scripts/build-search-runtime.py "$TARGETARCH" --root /upstream --output /bundle
+
 FROM --platform=$BUILDPLATFORM golang:1.26.9-alpine3.23 AS server
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
+COPY --from=search-payload /bundle/ internal/ai/searchruntime/bundle/
 COPY webclient_disabled.go ./
 ARG TARGETOS
 ARG TARGETARCH

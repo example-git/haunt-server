@@ -225,6 +225,7 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 			return
 		}
 	}
+	out.RoundStart = len(out.Replay)
 	contents = append(contents, out.Replay...)
 	maxTokens := r.MaxOutputTokens
 	if maxTokens <= 0 {
@@ -262,7 +263,7 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 	headers.Set("Authorization", "Bearer "+r.Credentials.AccessToken)
 	headers.Set("User-Agent", identity.UserAgent)
 	headers.Set("Accept", "*/*")
-	resp, err := wire.Request(ctx, c.HTTP, c.Endpoint, body, headers)
+	resp, err := wire.StreamRequest(ctx, c.HTTP, c.Endpoint, body, headers, emit)
 	if err != nil {
 		return out, err
 	}
@@ -357,6 +358,11 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 					}
 				}
 				if thought {
+					if value, _ := p["text"].(string); value != "" {
+						if err := wire.Emit(emit, provider.Event{Type: "reasoning"}); err != nil {
+							return err
+						}
+					}
 					if p["thoughtSignature"] == nil {
 						continue
 					}

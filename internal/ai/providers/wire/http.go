@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
@@ -51,6 +52,49 @@ func Status(code int, h http.Header) error {
 	return &provider.Error{Kind: kind, Status: code, RetryAfter: delay, Message: fmt.Sprintf("provider returned HTTP %d", code)}
 }
 func Request(ctx context.Context, c *http.Client, endpoint string, body any, headers http.Header) (*http.Response, error) {
+	return request(ctx, Client(c), endpoint, body, headers)
+}
+
+type streamBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *streamBody) Close() error {
+	defer b.cancel()
+	return b.ReadCloser.Close()
+}
+
+func StreamRequest(ctx context.Context, c *http.Client, endpoint string, body any, headers http.Header, emit func(provider.Event) error) (*http.Response, error) {
+	client := Client(c)
+	client.Timeout = 0
+	stream, cancel := context.WithCancelCause(ctx)
+	connection := time.AfterFunc(30*time.Second, func() { cancel(context.DeadlineExceeded) })
+	trace := &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { connection.Stop() },
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				if err := Emit(emit, provider.Event{Type: "submitted"}); err != nil {
+					cancel(err)
+				}
+			}
+		},
+	}
+	resp, err := request(httptrace.WithClientTrace(stream, trace), client, endpoint, body, headers)
+	connection.Stop()
+	if err != nil {
+		cause := context.Cause(stream)
+		cancel(nil)
+		if cause == context.DeadlineExceeded && ctx.Err() == nil {
+			return nil, &provider.Error{Kind: provider.Unavailable, Message: "provider connection timed out"}
+		}
+		return nil, err
+	}
+	resp.Body = &streamBody{resp.Body, func() { cancel(nil) }}
+	return resp, nil
+}
+
+func request(ctx context.Context, c *http.Client, endpoint string, body any, headers http.Header) (*http.Response, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -64,7 +108,7 @@ func Request(ctx context.Context, c *http.Client, endpoint string, body any, hea
 	}
 	req.Header = headers.Clone()
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := Client(c).Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -285,15 +329,11 @@ func safeCode(s string) string {
 	return s
 }
 func AppendReplay(replay []json.RawMessage, v any) ([]json.RawMessage, error) {
-	replay = append(replay, JSON(v))
-	size := 0
-	for _, b := range replay {
-		size += len(b)
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return replay, err
 	}
-	if size > 4<<20 || len(replay) > 256 {
-		return replay, &provider.Error{Kind: provider.InvalidRequest, Message: "provider continuation exceeds turn storage limit"}
-	}
-	return replay, nil
+	return append(replay, raw), nil
 }
 func ValidateExchange(c provider.OAuthConfig, e provider.OAuthExchange) error {
 	if e.Code == "" || e.Verifier == "" {

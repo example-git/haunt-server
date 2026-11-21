@@ -1,0 +1,224 @@
+package ai
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/example-git/haunt-server/internal/ai/provider"
+	"github.com/example-git/haunt-server/internal/ai/tools"
+	"github.com/example-git/haunt-server/internal/chat"
+	"github.com/example-git/haunt-server/internal/identity"
+	"github.com/jackc/pgx/v5"
+)
+
+type activityState struct {
+	action   string
+	detail   string
+	progress time.Time
+}
+
+type runActivity struct {
+	mu        sync.Mutex
+	current   activityState
+	sent      activityState
+	published time.Time
+}
+
+func newRunActivity() *runActivity {
+	return &runActivity{current: activityState{action: "provider", progress: time.Now()}}
+}
+
+func (a *runActivity) set(action, detail string, progress bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if progress || action != a.current.action || detail != a.current.detail {
+		a.current.progress = time.Now()
+	}
+	a.current.action = action
+	a.current.detail = detail
+}
+
+func (a *runActivity) take(now time.Time) (activityState, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	current := a.current
+	if current.action == "provider" && now.Sub(current.progress) >= 2*time.Minute {
+		current.action = "waiting_for_provider"
+	}
+	if now.Sub(a.published) < time.Second || current == a.sent {
+		return current, false
+	}
+	if current.action == a.sent.action && current.detail == a.sent.detail && now.Sub(a.published) < 15*time.Second {
+		return current, false
+	}
+	a.published, a.sent = now, current
+	return current, true
+}
+
+func (s *Service) publishActivity(ctx context.Context, t claimedTurn, state activityState) error {
+	return s.transaction(ctx, func(tx pgx.Tx) error {
+		result, err := tx.Exec(ctx, `UPDATE chatxo.ai_turns SET action=$2,detail=$3,last_progress_at=$4,revision=revision+1,updated_at=now() WHERE id=$1 AND status='running' AND attempt=$5 AND response_request_id=$6 AND history_epoch=$7`, t.ID, state.action, state.detail, state.progress, t.attempt, t.responseRequest, t.epoch)
+		if err != nil || result.RowsAffected() == 0 {
+			return err
+		}
+		return s.emitTurn(ctx, tx, t.ID)
+	})
+}
+
+func supersedeEvents(ctx context.Context, tx pgx.Tx, messageID, kind string) error {
+	_, err := tx.Exec(ctx, `WITH matching AS (
+		SELECT id FROM chatxo.events WHERE message_id=$1 AND convert_from(payload,'UTF8')::jsonb->>'type'=$2 ORDER BY id DESC OFFSET 1
+	), removed AS (
+		DELETE FROM chatxo.events e USING matching WHERE e.id=matching.id RETURNING e.bytes
+	) UPDATE chatxo.storage SET text_bytes=text_bytes-(SELECT sum(bytes) FROM removed) WHERE singleton AND EXISTS(SELECT 1 FROM removed)`, messageID, kind)
+	return err
+}
+
+func toolDetail(call provider.ToolCall) string {
+	var args struct {
+		URL   string `json:"url"`
+		Query string `json:"query"`
+	}
+	_ = json.Unmarshal(call.Arguments, &args)
+	detail := call.Name
+	if call.Name == "read_url" {
+		if endpoint, err := url.Parse(args.URL); err == nil && endpoint.Hostname() != "" {
+			detail = endpoint.Hostname()
+		}
+	}
+	if call.Name == "web_search" && args.Query != "" {
+		detail = args.Query
+	}
+	return shortText(detail, 128)
+}
+
+func shortText(value string, n int) string {
+	chars := []rune(strings.Join(strings.Fields(value), " "))
+	if len(chars) > n {
+		chars = chars[:n]
+	}
+	return string(chars)
+}
+
+func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *claimedTurn, call provider.ToolCall, a *runActivity) (provider.ToolResult, error) {
+	detail := toolDetail(call)
+	action := "tool_running"
+	switch call.Name {
+	case "image_generate", "image_edit", "switch_personality", "web_search", "read_url":
+		action = call.Name
+	}
+	a.set(action, detail, true)
+	ctx = tools.WithActivity(ctx, func(state, description string) {
+		if state == "tool_running" {
+			state = action
+		}
+		if description == "" {
+			description = detail
+		}
+		a.set(state, shortText(description, 128), false)
+	})
+	switch call.Name {
+	case "image_generate", "image_edit":
+		if t.snapshot.Provider == string(provider.Codex) {
+			return s.runImageTool(ctx, p, *t, call)
+		}
+		return toolFailure(call, "Image tools require the Codex provider."), nil
+	case "switch_personality":
+		var args struct {
+			PresetID string `json:"preset_id"`
+		}
+		if json.Unmarshal(call.Arguments, &args) != nil || !identity.ValidID(args.PresetID) {
+			return toolFailure(call, "Choose a personality ID from this channel’s roster."), nil
+		}
+		var name string
+		err := s.pool.QueryRow(ctx, `SELECT p.name FROM chatxo.ai_channel_settings s JOIN chatxo.ai_presets p ON p.channel_id=s.channel_id WHERE s.channel_id=$1 AND s.allow_agent_switch AND p.id=$2`, t.ChannelID, args.PresetID).Scan(&name)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return toolFailure(call, "Personality switching is unavailable for that identity in this channel."), nil
+		}
+		if err != nil {
+			return provider.ToolResult{}, err
+		}
+		t.pendingPreset = args.PresetID
+		return provider.ToolResult{ID: call.ID, Name: call.Name, Content: "Requested " + name + " for subsequent turns after this reply completes."}, nil
+	default:
+		return s.tools.Execute(ctx, call)
+	}
+}
+
+func toolFailure(call provider.ToolCall, content string) provider.ToolResult {
+	return provider.ToolResult{ID: call.ID, Name: call.Name, Content: content, IsError: true}
+}
+
+func (s *Service) commitSwitch(ctx context.Context, tx pgx.Tx, t claimedTurn) error {
+	var author chat.AIAuthor
+	var instructions string
+	var lastHuman int64
+	err := tx.QueryRow(ctx, `SELECT p.id,p.name,p.avatar_url,p.instructions,s.last_human_selection_seq FROM chatxo.ai_channel_settings s JOIN chatxo.ai_presets p ON p.channel_id=s.channel_id WHERE s.channel_id=$1 AND s.allow_agent_switch AND p.id=$2 FOR UPDATE OF s,p`, t.ChannelID, t.pendingPreset).Scan(&author.ID, &author.Name, &author.AvatarURL, &instructions, &lastHuman)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(author)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE chatxo.ai_turns SET snapshot=snapshot || jsonb_build_object('author',$3::jsonb,'preset_instructions',$4::text)
+		WHERE channel_id=$1 AND status='queued' AND attempt=0 AND boundary_seq>$2 AND COALESCE((snapshot->>'selection_seq')::bigint,0)<=$2`, t.ChannelID, t.boundary, raw, instructions)
+	if err != nil || lastHuman > t.boundary {
+		return err
+	}
+	return s.selectPreset(ctx, tx, t.ChannelID, t.pendingPreset, nil)
+}
+
+func (s *Service) selectPreset(ctx context.Context, tx pgx.Tx, channel, preset string, humanSeq *int64) error {
+	var revision int64
+	if err := tx.QueryRow(ctx, `UPDATE chatxo.ai_channel_settings SET active_preset_id=$2,last_human_selection_seq=coalesce($3::bigint,last_human_selection_seq),revision=revision+1 WHERE channel_id=$1 RETURNING revision`, channel, preset, humanSeq).Scan(&revision); err != nil {
+		return err
+	}
+	return s.chat.Emit(ctx, tx, channel, nil, "ai.settings.updated", map[string]int64{"revision": revision})
+}
+
+type runMemory struct {
+	notes []string
+}
+
+func (m *runMemory) advance(req *provider.Request, response provider.Response) {
+	req.Replay = response.Replay
+	size := 0
+	for _, item := range req.Replay {
+		size += len(item)
+	}
+
+	notes := make([]string, 0, len(req.ToolResults))
+	for i, tool := range req.ToolResults {
+		source := tool.Name
+		if i < len(response.Calls) {
+			if detail := toolDetail(response.Calls[i]); detail != tool.Name {
+				source += " " + detail
+			}
+		}
+		notes = append(notes, source+": "+shortText(tool.Content, 768))
+	}
+
+	if (size >= 96<<10 || len(req.Replay) >= 128) && response.RoundStart > 0 && response.RoundStart <= len(req.Replay) && len(req.ToolResults) > 0 {
+		req.Replay = append([]json.RawMessage(nil), req.Replay[response.RoundStart:]...)
+		if len(m.notes) > 0 {
+			content, _ := json.Marshal(struct {
+				Current string   `json:"current_tool_result"`
+				Earlier []string `json:"earlier_tool_result_excerpts"`
+			}{req.ToolResults[0].Content, m.notes})
+			req.ToolResults[0].Content = string(content)
+		}
+	}
+	m.notes = append(m.notes, notes...)
+	if len(m.notes) > 64 {
+		m.notes = append([]string(nil), m.notes[len(m.notes)-64:]...)
+	}
+}

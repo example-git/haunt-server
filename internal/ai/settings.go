@@ -1,9 +1,12 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"github.com/example-git/haunt-server/internal/ai/provider"
 	"github.com/example-git/haunt-server/internal/identity"
 	"github.com/jackc/pgx/v5"
@@ -60,7 +63,7 @@ func (s *Service) Settings(ctx context.Context, p identity.Principal, id string)
 		if err := s.enforce(ctx, tx, id); err != nil {
 			return err
 		}
-		return tx.QueryRow(ctx, `SELECT s.channel_id,COALESCE(s.account_id::text,''),s.provider,s.model,s.instructions,s.name,s.avatar_url,s.max_bytes,COALESCE(s.active_preset_id::text,''),s.revision,COALESCE(a.status,'disconnected') FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_accounts a ON a.id=s.account_id WHERE s.channel_id=$1`, id).Scan(&out.ChannelID, &out.AccountID, &out.Provider, &out.Model, &out.Instructions, &out.Name, &out.AvatarURL, &out.MaxBytes, &out.ActivePresetID, &out.Revision, &out.ConnectionStatus)
+		return tx.QueryRow(ctx, `SELECT s.channel_id,COALESCE(s.account_id::text,''),s.provider,s.model,s.instructions,s.name,s.avatar_url,s.max_bytes,s.allow_agent_switch,COALESCE(s.active_preset_id::text,''),s.revision,COALESCE(a.status,'disconnected') FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_accounts a ON a.id=s.account_id WHERE s.channel_id=$1`, id).Scan(&out.ChannelID, &out.AccountID, &out.Provider, &out.Model, &out.Instructions, &out.Name, &out.AvatarURL, &out.MaxBytes, &out.AllowAgentSwitch, &out.ActivePresetID, &out.Revision, &out.ConnectionStatus)
 	})
 	return out, err
 }
@@ -118,7 +121,7 @@ func (s *Service) SaveSettings(ctx context.Context, p identity.Principal, id str
 		if v.AvatarURL != "" && v.AvatarURL != avatar {
 			return identity.ErrInvalid
 		}
-		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET account_id=$2,provider=$3,model=$4,instructions=$5,name=$6,max_bytes=$7,revision=revision+1 WHERE channel_id=$1`, id, nullable(v.AccountID), v.Provider, v.Model, v.Instructions, v.Name, v.MaxBytes)
+		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET account_id=$2,provider=$3,model=$4,instructions=$5,name=$6,max_bytes=$7,allow_agent_switch=$8,revision=revision+1 WHERE channel_id=$1`, id, nullable(v.AccountID), v.Provider, v.Model, v.Instructions, v.Name, v.MaxBytes, v.AllowAgentSwitch)
 		if err != nil {
 			return err
 		}
@@ -133,7 +136,7 @@ func (s *Service) Presets(ctx context.Context, p identity.Principal, id string) 
 	if _, err := s.channel(ctx, p, id, false); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id,channel_id,name,avatar_url,instructions,revision FROM chatxo.ai_presets WHERE channel_id=$1 ORDER BY name,id`, id)
+	rows, err := s.pool.Query(ctx, `SELECT id,channel_id,name,avatar_url,instructions,description,revision FROM chatxo.ai_presets WHERE channel_id=$1 ORDER BY name,id`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +144,7 @@ func (s *Service) Presets(ctx context.Context, p identity.Principal, id string) 
 	out := []Preset{}
 	for rows.Next() {
 		var v Preset
-		if err = rows.Scan(&v.ID, &v.ChannelID, &v.Name, &v.AvatarURL, &v.Instructions, &v.Revision); err != nil {
+		if err = rows.Scan(&v.ID, &v.ChannelID, &v.Name, &v.AvatarURL, &v.Instructions, &v.Description, &v.Revision); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -152,34 +155,57 @@ func (s *Service) SavePreset(ctx context.Context, p identity.Principal, id, pres
 	if _, err := s.channel(ctx, p, id, true); err != nil {
 		return Preset{}, err
 	}
-	if !validName(v.Name) || !validInstructions(v.Instructions) || (preset != "" && !identity.ValidID(preset)) {
+	if !validName(v.Name) || !validInstructions(v.Instructions) || !validInstructions(v.Description) || len(v.Description) > 4096 || (preset != "" && !identity.ValidID(preset)) {
 		return Preset{}, identity.ErrInvalid
 	}
 	create := preset == ""
-	if create {
-		preset = identity.NewID()
+	if v.RequestID != "" && (!create || !identity.ValidID(v.RequestID)) {
+		return Preset{}, identity.ErrInvalid
 	}
+	if create {
+		preset = v.RequestID
+		if preset == "" {
+			preset = identity.NewID()
+		}
+	}
+	var portrait []byte
+	var err error
+	if v.AvatarData != nil {
+		portrait, err = s.ids.NormalizeAvatar(v.AvatarData)
+		if err != nil {
+			return Preset{}, err
+		}
+	}
+	fields, _ := json.Marshal([]string{v.Name, v.Instructions, v.Description, avatarVersion(portrait), v.AvatarURL})
+	hash := sha256.Sum256(fields)
 	out := Preset{ID: preset, ChannelID: id}
-	err := s.transaction(ctx, func(tx pgx.Tx) error {
+	err = s.transaction(ctx, func(tx pgx.Tx) error {
 		if err := s.authorizeChannelWrite(ctx, tx, p, id); err != nil {
 			return err
 		}
 		if err := s.ensureSettings(ctx, tx, id); err != nil {
 			return err
 		}
-		if v.AvatarURL != "" {
-			var avatar string
-			if create {
-				return identity.ErrInvalid
-			}
-			if err := tx.QueryRow(ctx, `SELECT avatar_url FROM chatxo.ai_presets WHERE id=$1 AND channel_id=$2`, preset, id).Scan(&avatar); err != nil {
-				return translate(err)
-			}
-			if v.AvatarURL != avatar {
-				return identity.ErrInvalid
-			}
+		load := func() error {
+			return tx.QueryRow(ctx, `SELECT name, avatar_url, instructions, description, revision FROM chatxo.ai_presets WHERE channel_id=$1 AND id=$2`, id, preset).Scan(&out.Name, &out.AvatarURL, &out.Instructions, &out.Description, &out.Revision)
 		}
 		if create {
+			if v.AvatarURL != "" {
+				return identity.ErrInvalid
+			}
+			if v.RequestID != "" {
+				var prior []byte
+				err := tx.QueryRow(ctx, `SELECT create_hash FROM chatxo.ai_presets WHERE channel_id=$1 AND id=$2`, id, preset).Scan(&prior)
+				if err == nil {
+					if !bytes.Equal(prior, hash[:]) {
+						return identity.ErrConflict
+					}
+					return load()
+				}
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+			}
 			var count int
 			if err := tx.QueryRow(ctx, `SELECT count(*) FROM chatxo.ai_presets WHERE channel_id=$1`, id).Scan(&count); err != nil {
 				return err
@@ -187,24 +213,26 @@ func (s *Service) SavePreset(ctx context.Context, p identity.Principal, id, pres
 			if count >= 32 {
 				return identity.ErrInvalid
 			}
-			_, err := tx.Exec(ctx, `INSERT INTO chatxo.ai_presets(id,channel_id,name,instructions) VALUES($1,$2,$3,$4)`, preset, id, v.Name, v.Instructions)
-			if err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO chatxo.ai_presets(id,channel_id,name,instructions,description,create_hash) VALUES($1,$2,$3,$4,$5,$6)`, preset, id, v.Name, v.Instructions, v.Description, hash[:]); err != nil {
 				return err
 			}
 		} else {
-			r, err := tx.Exec(ctx, `UPDATE chatxo.ai_presets SET name=$3,instructions=$4,revision=revision+1 WHERE id=$1 AND channel_id=$2`, preset, id, v.Name, v.Instructions)
-			if err != nil {
+			if err := load(); err != nil {
+				return translate(err)
+			}
+			if v.AvatarURL != "" && v.AvatarURL != out.AvatarURL {
+				return identity.ErrInvalid
+			}
+			if _, err := tx.Exec(ctx, `UPDATE chatxo.ai_presets SET name=$3,instructions=$4,description=$5,revision=revision+1 WHERE id=$1 AND channel_id=$2`, preset, id, v.Name, v.Instructions, v.Description); err != nil {
 				return err
 			}
-			if r.RowsAffected() == 0 {
-				return identity.ErrNotFound
+		}
+		if portrait != nil {
+			if _, err := s.storeAvatar(ctx, tx, id, preset, portrait); err != nil {
+				return err
 			}
 		}
-		if err := tx.QueryRow(ctx, `SELECT name,avatar_url,instructions,revision FROM chatxo.ai_presets WHERE id=$1`, preset).Scan(&out.Name, &out.AvatarURL, &out.Instructions, &out.Revision); err != nil {
-			return err
-		}
-		_, err := tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET revision=revision+1 WHERE channel_id=$1`, id)
-		if err != nil {
+		if err := load(); err != nil {
 			return err
 		}
 		return s.settingsChanged(ctx, tx, id)
@@ -247,11 +275,7 @@ func (s *Service) SaveAvatar(ctx context.Context, p identity.Principal, id, pres
 	if err != nil {
 		return "", err
 	}
-	url := "/api/v1/channels/" + id + "/ai"
-	if preset != "" {
-		url += "/presets/" + preset
-	}
-	url += "/avatar?v=" + avatarVersion(data)
+	var url string
 	err = s.transaction(ctx, func(tx pgx.Tx) error {
 		if err := s.authorizeChannelWrite(ctx, tx, p, id); err != nil {
 			return err
@@ -259,25 +283,37 @@ func (s *Service) SaveAvatar(ctx context.Context, p identity.Principal, id, pres
 		if err := s.ensureSettings(ctx, tx, id); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO chatxo.ai_avatars(channel_id,version,data) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, id, avatarVersion(data), data); err != nil {
+		url, err = s.storeAvatar(ctx, tx, id, preset, data)
+		if err != nil {
 			return err
-		}
-		var r interface{ RowsAffected() int64 }
-		var e error
-		if preset == "" {
-			r, e = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET avatar_url=$2,revision=revision+1 WHERE channel_id=$1`, id, url)
-		} else {
-			r, e = tx.Exec(ctx, `UPDATE chatxo.ai_presets SET avatar_url=$2,revision=revision+1 WHERE id=$1 AND channel_id=$3`, preset, url, id)
-		}
-		if e != nil {
-			return e
-		}
-		if r.RowsAffected() == 0 {
-			return identity.ErrNotFound
 		}
 		return s.settingsChanged(ctx, tx, id)
 	})
 	return url, err
+}
+func (s *Service) storeAvatar(ctx context.Context, tx pgx.Tx, id, preset string, data []byte) (string, error) {
+	url := "/api/v1/channels/" + id + "/ai"
+	if preset != "" {
+		url += "/presets/" + preset
+	}
+	url += "/avatar?v=" + avatarVersion(data)
+	if _, err := tx.Exec(ctx, `INSERT INTO chatxo.ai_avatars(channel_id,version,data) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, id, avatarVersion(data), data); err != nil {
+		return "", err
+	}
+	var r interface{ RowsAffected() int64 }
+	var e error
+	if preset == "" {
+		r, e = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET avatar_url=$2,revision=revision+1 WHERE channel_id=$1`, id, url)
+	} else {
+		r, e = tx.Exec(ctx, `UPDATE chatxo.ai_presets SET avatar_url=$2,revision=revision+1 WHERE id=$1 AND channel_id=$3`, preset, url, id)
+	}
+	if e != nil {
+		return "", e
+	}
+	if r.RowsAffected() == 0 {
+		return "", identity.ErrNotFound
+	}
+	return url, nil
 }
 func (s *Service) Avatar(ctx context.Context, p identity.Principal, id, preset string, versions ...string) ([]byte, error) {
 	if _, err := s.channel(ctx, p, id, false); err != nil {

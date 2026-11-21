@@ -113,7 +113,7 @@ func (s *Service) NormalizeAvatar(raw []byte) ([]byte, error) {
 	default:
 		return nil, ErrBusy
 	}
-	return normalizeArt(raw, false)
+	return fitAIAvatar(raw)
 }
 func (s *Service) SaveArt(ctx context.Context, p Principal, kind string, raw []byte) (string, error) {
 	if kind != "avatar" && kind != "icon" && kind != "banner" {

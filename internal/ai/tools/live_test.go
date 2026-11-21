@@ -13,6 +13,10 @@ func TestLivePublicTools(t *testing.T) {
 		t.Skip("set HAUNT_AI_LIVE_TOOLS=1 to exercise external public sources")
 	}
 	r := New()
+	if err := r.Start(t.Context(), t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.Close)
 	for _, tc := range []struct{ name, args string }{{"read_url", `{"url":"https://example.org","max_chars":1024}`}, {"web_search", `{"query":"Go programming language official","max_results":3}`}} {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := r.Execute(t.Context(), provider.ToolCall{ID: "live-check", Name: tc.name, Arguments: json.RawMessage(tc.args)})

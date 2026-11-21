@@ -31,6 +31,8 @@ def main():
         raise ValueError("Build the web client first")
     manifest = {"schema": 1, "version": version, "runtime": runtime, "platforms": {}}
     for arch in args.arch or ["amd64", "arm64"]:
+        if not (ROOT / f"internal/ai/searchruntime/bundle/{arch}.tar.gz").is_file():
+            subprocess.run([sys.executable, "scripts/build-search-runtime.py", arch], cwd=ROOT, check=True)
         with tempfile.TemporaryDirectory(prefix="haunt-app-") as temporary:
             stage = Path(temporary)
             subprocess.run(["go", "build", "-p", "2", "-trimpath", "-ldflags=-s -w -X main.version=" + version + " -X github.com/example-git/haunt-server/internal/config.HostedClientOrigin=" + os.environ.get("HAUNT_WEB_CLIENT_ORIGIN", ""),
@@ -52,6 +54,11 @@ def main():
                 bundle.add(stage / "haunt", arcname="haunt", filter=clean)
                 bundle.add(stage / "release.json", arcname="release.json", filter=clean)
                 bundle.add(web, arcname="web", filter=clean)
+            if archive.stat().st_size > 256 << 20:
+                raise ValueError("Server app exceeds the existing updater archive limit")
+            with tarfile.open(archive, "r:gz") as check:
+                if sum(member.size for member in check) > 512 << 20:
+                    raise ValueError("Server app exceeds the existing updater extraction limit")
             manifest["platforms"]["linux/" + arch] = {
                 "asset": name, "bytes": archive.stat().st_size,
                 "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),

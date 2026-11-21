@@ -156,6 +156,7 @@ type Event struct {
 	Usage *Usage    `json:"usage,omitempty"`
 }
 type Response struct {
+	RoundStart   int               `json:"-"`
 	Text         string            `json:"text"`
 	Calls        []ToolCall        `json:"calls,omitempty"`
 	Replay       []json.RawMessage `json:"replay,omitempty"`

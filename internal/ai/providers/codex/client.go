@@ -81,6 +81,7 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 			return
 		}
 	}
+	out.RoundStart = len(out.Replay)
 	input = append(input, out.Replay...)
 	tools := []any{}
 	for _, t := range r.Tools {
@@ -130,7 +131,9 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 		headers.Set("chatgpt-account-id", r.Credentials.AccountID)
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	conn, resp, err := websocket.Dial(dialCtx, c.Endpoint, &websocket.DialOptions{HTTPClient: c.HTTP, HTTPHeader: headers})
+	client := wire.Client(c.HTTP)
+	client.Timeout = 0
+	conn, resp, err := websocket.Dial(dialCtx, c.Endpoint, &websocket.DialOptions{HTTPClient: client, HTTPHeader: headers})
 	cancel()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -148,6 +151,9 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 			return out, ctx.Err()
 		}
 		return out, wire.Truncated()
+	}
+	if err = wire.Emit(emit, provider.Event{Type: "submitted"}); err != nil {
+		return out, err
 	}
 	total := 0
 	items := []json.RawMessage{}
@@ -191,6 +197,18 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 			out.Text += e.Delta
 			if err = wire.Emit(emit, provider.Event{Type: "text_delta", Text: e.Delta}); err != nil {
 				return
+			}
+		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			if e.Delta != "" {
+				if err = wire.Emit(emit, provider.Event{Type: "reasoning"}); err != nil {
+					return
+				}
+			}
+		case "response.function_call_arguments.delta":
+			if e.Delta != "" {
+				if err = wire.Emit(emit, provider.Event{Type: "tool_arguments"}); err != nil {
+					return
+				}
 			}
 		case "response.output_item.done":
 			items = append(items, append(json.RawMessage(nil), e.Item...))

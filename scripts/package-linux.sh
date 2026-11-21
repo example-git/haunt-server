@@ -9,6 +9,7 @@ export GOTOOLCHAIN=local
 go run ./cmd/apidocs -check -client-out client/static/api
 (cd client && npm ci && npm run build)
 mkdir -p bin
+for arch in amd64 arm64; do python3 scripts/build-search-runtime.py "$arch"; done
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags webclient -trimpath -o bin/haunt-linux-amd64 ./cmd/haunt
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -tags webclient -trimpath -o bin/haunt-linux-arm64 ./cmd/haunt
 cp bin/haunt-linux-amd64 bin/haunt

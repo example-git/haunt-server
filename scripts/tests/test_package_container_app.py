@@ -21,6 +21,10 @@ class PackageTargetTests(unittest.TestCase):
             (root / "client/dist").mkdir(parents=True)
             (root / "client/dist/haunt-build.json").write_text('{"version":1,"id":"fixture"}')
             (root / "client/dist/index.html").write_text("web")
+            runtime = root / "internal/ai/searchruntime/bundle"
+            runtime.mkdir(parents=True)
+            for arch in ("arm64", "amd64"):
+                (runtime / (arch + ".tar.gz")).write_bytes(b"search fixture")
             def build(command, **kwargs):
                 Path(command[command.index("-o") + 1]).write_bytes(b"binary")
             for selected, expected in [(["--arch", "arm64"], {"linux/arm64"}), ([], {"linux/amd64", "linux/arm64"})]:

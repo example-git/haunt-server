@@ -131,18 +131,33 @@ restart, ambiguous in-flight requests are interrupted and require an explicit re
 Partial responses remain visible. A missing account, unsupported selected model,
 permission loss or exhausted storage is reported without substituting providers.
 
-Image attachments are read through existing attachment authorization and sent as
-native vision content. Built-in tools are `read_url` and `web_search`. URL reading
-converts public HTTP(S) pages to bounded Markdown/text and rejects private network
-destinations. Search uses DuckDuckGo Lite and reports upstream blocks or failures.
-Image generation is unavailable. These integrations expose no shell, filesystem,
-server administration, arbitrary tool registry or execution harness.
+The activity indicator above the composer is shared by channel viewers. A quiet
+provider changes to “Waiting for provider” after two minutes and can still
+complete. The requester or a channel manager can cancel a response. Tool calls
+can continue across rounds for the life of the response. Intermediate results
+and provider replay belong to that response.
+
+Search uses the server’s bundled private SearXNG runtime. Operators can set
+`HAUNT_DIFFBOT_KEY` for a fallback search when upstream engines fail.
+`read_url` turns public pages into Markdown without executing JavaScript.
+The reader tries a direct connection first and can use cached public proxy lists
+for a failed route. An unavailable page returns an error for that tool call.
+
+Add a personality to configure its name, description, instructions and avatar.
+Members can mention it to select it for the channel. When a manager enables
+agent switching, the current personality finishes its response before the
+new selection takes effect. Removing the last personality restores the base identity.
+
+Channels using Codex can generate images and edit images attached to a request
+or its direct reply target. Both tools authenticate with the selected Codex
+connection. Results appear as channel attachments. A later direct reply to
+the image includes it in model input.
 
 Defaults are 64 MiB per AI channel and 128 MiB across AI conversations, both
 subordinate to the server text budget. Administrators can change the defaults in
 Limits & access or set `HAUNT_AI_CHANNEL_MAX_BYTES` and `HAUNT_AI_TEXT_MAX_BYTES`
 before the first configuration save. Existing age retention also applies. Pruning
-removes the oldest coherent history prefix and dependent replay/tool state; clients
+removes the oldest coherent history prefix and dependent turn records; clients
 evict that history from local caches, including after reconnect. Active work has a
 finite reservation and can report a storage error. Images use attachment budgets;
 pruned message attachments are reclaimed through the existing blob deletion path.

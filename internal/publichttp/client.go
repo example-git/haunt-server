@@ -3,6 +3,7 @@ package publichttp
 import (
 	"context"
 	"errors"
+	"golang.org/x/net/proxy"
 	"net"
 	"net/http"
 	"net/netip"
@@ -69,17 +70,38 @@ func PublicHost(host string) bool {
 	return !strings.Contains(host, "%") && (strings.Contains(host, ".") || strings.Contains(host, ":"))
 }
 func NewClient() *http.Client {
+	return client(3*time.Second, 3*time.Second, 6*time.Second, nil)
+}
+
+func PageClient(relay *netip.AddrPort) *http.Client {
+	return client(10*time.Second, 15*time.Second, 60*time.Second, relay)
+}
+
+func client(connect, headers, total time.Duration, relay *netip.AddrPort) *http.Client {
 	transport := &http.Transport{
 		Proxy: nil, MaxIdleConns: 16, MaxIdleConnsPerHost: 2, MaxConnsPerHost: 4,
-		IdleConnTimeout: 30 * time.Second, TLSHandshakeTimeout: 3 * time.Second, ResponseHeaderTimeout: 3 * time.Second,
+		IdleConnTimeout: 30 * time.Second, TLSHandshakeTimeout: connect, ResponseHeaderTimeout: headers,
 		MaxResponseHeaderBytes: 32 << 10,
 	}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		dialer := net.Dialer{Timeout: 3 * time.Second}
-		return DialPublic(ctx, network, address, net.DefaultResolver.LookupNetIP, dialer.DialContext)
+		dialCtx, cancel := context.WithTimeout(ctx, connect)
+		defer cancel()
+		dialer := &net.Dialer{Timeout: connect}
+		dial := dialer.DialContext
+		if relay != nil {
+			if !PublicIP(relay.Addr()) || relay.Port() == 0 {
+				return nil, ErrUnavailable
+			}
+			socks, err := proxy.SOCKS5("tcp", relay.String(), nil, dialer)
+			if err != nil {
+				return nil, err
+			}
+			dial = socks.(proxy.ContextDialer).DialContext
+		}
+		return DialPublic(dialCtx, network, address, net.DefaultResolver.LookupNetIP, dial)
 	}
 
-	return &http.Client{Transport: transport, Timeout: 6 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	return &http.Client{Transport: transport, Timeout: total, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 4 {
 			return ErrUnavailable
 		}
@@ -102,12 +124,14 @@ func DialPublic(ctx context.Context, network, address string, lookup func(contex
 			return nil, ErrUnavailable
 		}
 	}
+	var last error
 	// The only dial target is an already-validated IP; no second DNS resolution.
 	for _, ip := range ips {
 		conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
 		if err == nil {
 			return conn, nil
 		}
+		last = err
 	}
-	return nil, ErrUnavailable
+	return nil, errors.Join(ErrUnavailable, last)
 }

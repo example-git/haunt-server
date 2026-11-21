@@ -84,7 +84,7 @@ func New(ctx context.Context, c config.Config, ch *chat.Store) (*Store, error) {
 }
 func (s *Store) Close() error          { return s.lock.Close() }
 func (s *Store) path(id string) string { return filepath.Join(s.dir, id) }
-func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name string, size int64, encrypted bool) (Attachment, error) {
+func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name string, size int64, encrypted bool, generation string) (Attachment, error) {
 	if err := s.chat.Access(ctx, p, conv, true); err != nil {
 		return Attachment{}, err
 	}
@@ -119,6 +119,12 @@ func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name st
 		max = policy.DM.ImageMaxBytes
 		name = "encrypted-image"
 	}
+	if generation != "" && (isDM || !identity.ValidID(generation)) {
+		return Attachment{}, identity.ErrInvalid
+	}
+	if generation != "" {
+		max = policy.ImageMaxBytes
+	}
 	if size < 1 || size > max || len(name) < 1 || len(name) > 128 || strings.ContainsAny(name, "\x00\r\n/\\") {
 		return Attachment{}, identity.ErrInvalid
 	}
@@ -148,10 +154,13 @@ func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name st
 		return Attachment{}, identity.ErrBusy
 	}
 	a := Attachment{IsDM: isDM, Encrypted: encrypted, ID: identity.NewID(), ConversationID: conv, UserID: p.User.ID, Filename: name, Bytes: size, policy: policy}
+	if generation != "" {
+		a.UserID = ""
+	}
 	if err = tx.QueryRow(ctx, `SELECT (SELECT id FROM chatxo.storage_providers WHERE active)`).Scan(&a.provider); err != nil {
 		return Attachment{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO chatxo.attachments(id,conversation_id,user_id,status,filename,bytes,expires_at,storage_provider_id,is_dm,encrypted) VALUES($1,$2,$3,'uploading',$4,$5,now()+interval '10 minutes',$6,$7,$8)`, a.ID, conv, p.User.ID, name, size, a.provider, isDM, encrypted); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO chatxo.attachments(id,conversation_id,user_id,status,filename,bytes,expires_at,storage_provider_id,is_dm,encrypted,ai_generation_id) VALUES($1,$2,NULLIF($3,'')::uuid,'uploading',$4,$5,now()+interval '10 minutes',$6,$7,$8,NULLIF($9,'')::uuid)`, a.ID, conv, a.UserID, name, size, a.provider, isDM, encrypted, generation); err != nil {
 		return Attachment{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE chatxo.storage SET attachment_bytes=attachment_bytes+$1 WHERE singleton`, size); err != nil {
@@ -161,13 +170,20 @@ func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name st
 }
 
 func (s *Store) Upload(ctx context.Context, p identity.Principal, conv, name string, size int64, reader io.Reader, encrypted ...bool) (Attachment, error) {
+	return s.upload(ctx, p, conv, name, size, reader, len(encrypted) > 0 && encrypted[0], "")
+}
+
+func (s *Store) UploadGenerated(ctx context.Context, p identity.Principal, conv, generation, name string, data []byte) (Attachment, error) {
+	return s.upload(ctx, p, conv, name, int64(len(data)), bytes.NewReader(data), false, generation)
+}
+func (s *Store) upload(ctx context.Context, p identity.Principal, conv, name string, size int64, reader io.Reader, encrypted bool, generation string) (Attachment, error) {
 	select {
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
 	default:
 		return Attachment{}, identity.ErrBusy
 	}
-	a, err := s.reserve(ctx, p, conv, name, size, len(encrypted) > 0 && encrypted[0])
+	a, err := s.reserve(ctx, p, conv, name, size, encrypted, generation)
 	if err != nil {
 		return Attachment{}, err
 	}
@@ -209,6 +225,9 @@ func (s *Store) Upload(ctx context.Context, p identity.Principal, conv, name str
 	}
 	if err != nil {
 		return Attachment{}, err
+	}
+	if generation != "" && !strings.HasPrefix(mediaType, "image/") {
+		return Attachment{}, ErrMedia
 	}
 	// Recheck membership after receiving bytes; permissions may have changed.
 	fresh, err := s.chat.Identity.Refresh(ctx, p)
@@ -379,7 +398,7 @@ func (s *Store) Metadata(ctx context.Context, p identity.Principal, id string) (
 		return Attachment{}, identity.ErrInvalid
 	}
 	var a Attachment
-	err := s.chat.Pool.QueryRow(ctx, `SELECT id,conversation_id,user_id,filename,content_type,bytes,expires_at,storage_provider_id,is_dm,encrypted FROM chatxo.attachments WHERE id=$1 AND status='ready' AND CASE WHEN is_dm AND encrypted AND claimed THEN $2::bigint=0 OR created_at>now()-$2::bigint*interval '1 day' ELSE expires_at IS NULL OR expires_at>now() END`, id, s.chat.CurrentPolicy().DM.ImageRetentionDays).Scan(&a.ID, &a.ConversationID, &a.UserID, &a.Filename, &a.ContentType, &a.Bytes, &a.ExpiresAt, &a.provider, &a.IsDM, &a.Encrypted)
+	err := s.chat.Pool.QueryRow(ctx, `SELECT id,conversation_id,COALESCE(user_id::text,''),filename,content_type,bytes,expires_at,storage_provider_id,is_dm,encrypted FROM chatxo.attachments WHERE id=$1 AND status='ready' AND CASE WHEN is_dm AND encrypted AND claimed THEN $2::bigint=0 OR created_at>now()-$2::bigint*interval '1 day' ELSE expires_at IS NULL OR expires_at>now() END`, id, s.chat.CurrentPolicy().DM.ImageRetentionDays).Scan(&a.ID, &a.ConversationID, &a.UserID, &a.Filename, &a.ContentType, &a.Bytes, &a.ExpiresAt, &a.provider, &a.IsDM, &a.Encrypted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Attachment{}, identity.ErrNotFound
 	}
@@ -415,7 +434,7 @@ func (s *Store) Delete(ctx context.Context, p identity.Principal, id string) err
 		return identity.ErrInvalid
 	}
 	var conv, user string
-	err := s.chat.Pool.QueryRow(ctx, `SELECT conversation_id,user_id FROM chatxo.attachments WHERE id=$1`, id).Scan(&conv, &user)
+	err := s.chat.Pool.QueryRow(ctx, `SELECT conversation_id,COALESCE(user_id::text,'') FROM chatxo.attachments WHERE id=$1`, id).Scan(&conv, &user)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.ErrNotFound
 	}
@@ -621,4 +640,13 @@ func (s *Store) reconcile(ctx context.Context) error {
 		return errors.New("attachment accounting mismatch")
 	}
 	return nil
+}
+
+func (s *Store) DiscardGenerated(parent context.Context, id, generation string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+	defer cancel()
+	tag, err := s.chat.Pool.Exec(ctx, `UPDATE chatxo.attachments SET status='deleting' WHERE id=$1 AND ai_generation_id=$2 AND NOT claimed`, id, generation)
+	if err == nil && tag.RowsAffected() == 1 {
+		_ = s.remove(ctx, id)
+	}
 }

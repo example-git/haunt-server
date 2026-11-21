@@ -102,7 +102,7 @@ func NewFeatures(ctx context.Context, c config.Config, pool postgres.Pool, ids *
 		return nil, err
 	}
 	policy := c.Policy.WithDefaults()
-	f.AI, err = ai.New(ctx, pool, ids, store, media, ai.Options{InstanceID: c.InstanceID, DataDir: c.DataDir, ChannelMaxBytes: policy.AIChannelMaxBytes, GlobalMaxBytes: policy.AITextMaxBytes}, providers.New(f.ClientIdentities, nil))
+	f.AI, err = ai.New(ctx, pool, ids, store, media, ai.Options{InstanceID: c.InstanceID, DiffbotKey:c.DiffbotKey, DataDir: c.DataDir, ChannelMaxBytes: policy.AIChannelMaxBytes, GlobalMaxBytes: policy.AITextMaxBytes}, providers.New(f.ClientIdentities, nil))
 	if err != nil {
 		f.Close(ctx)
 		return nil, err
