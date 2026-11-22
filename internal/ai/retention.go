@@ -40,15 +40,25 @@ func (s *Service) Usage(ctx context.Context, p identity.Principal, id string) (U
 	return u, err
 }
 func (s *Service) Prune(ctx context.Context, tx pgx.Tx, id string, through int64) error {
+	if err := s.refreshBatchInputs(ctx, tx, id, through); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM chatxo.ai_turns WHERE channel_id=$1 AND boundary_seq<=$2`, id, through); err != nil {
 		return err
 	}
-	if err := s.Invalidate(ctx, tx, id); err != nil {
+	if err := s.invalidateHistory(ctx, tx, id); err != nil {
 		return err
 	}
 	return s.cleanupAvatars(ctx, tx, id, through)
 }
 func (s *Service) Invalidate(ctx context.Context, tx pgx.Tx, id string) error {
+	if err := s.refreshBatchInputs(ctx, tx, id, 0); err != nil {
+		return err
+	}
+	return s.invalidateHistory(ctx, tx, id)
+}
+
+func (s *Service) invalidateHistory(ctx context.Context, tx pgx.Tx, id string) error {
 	var epoch int64
 	err := tx.QueryRow(ctx, `UPDATE chatxo.ai_channel_settings SET history_epoch=history_epoch+1 WHERE channel_id=$1 RETURNING history_epoch`, id).Scan(&epoch)
 	if err == pgx.ErrNoRows {

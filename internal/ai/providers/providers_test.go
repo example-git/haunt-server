@@ -54,6 +54,12 @@ func assertShared(t *testing.T, b []byte) {
 	if a < 0 || z < a {
 		t.Error("image order lost")
 	}
+	if strings.Contains(s, "tool page result") {
+		picture := base64.StdEncoding.EncodeToString([]byte("sample profile portrait"))
+		if strings.Count(s, picture) != 1 || !strings.Contains(s, "profile lookup picture") {
+			t.Error("tool continuation omitted or duplicated its labeled picture")
+		}
+	}
 }
 func sendSSE(w http.ResponseWriter, events ...string) {
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -80,6 +86,7 @@ func runContinuation(t *testing.T, a provider.Adapter, r provider.Request) {
 	}
 	r.Replay = first.Replay
 	r.ToolResults = []provider.ToolResult{{ID: first.Calls[0].ID, Name: "read_url", Content: "tool page result"}}
+	r.ToolMedia = []provider.Part{{Type: "text", Text: "profile lookup picture"}, {Type: "image", MIMEType: "image/png", Data: []byte("sample profile portrait")}}
 	second, err := a.Generate(ctx, r, func(e provider.Event) error {
 		if e.Type == "text_delta" {
 			streamed.WriteString(e.Text)
@@ -96,6 +103,9 @@ func runContinuation(t *testing.T, a provider.Adapter, r provider.Request) {
 		t.Error("continuation omitted previous tail or tool output")
 	}
 	for _, raw := range second.Replay {
+		if strings.Contains(string(raw), base64.StdEncoding.EncodeToString([]byte("sample profile portrait"))) {
+			t.Error("tool image bytes were persisted in replay")
+		}
 		if strings.Contains(string(raw), "image-one") || strings.Contains(string(raw), base64.StdEncoding.EncodeToString([]byte("image-one"))) {
 			t.Error("base image duplicated into replay")
 		}

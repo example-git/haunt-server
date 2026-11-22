@@ -65,7 +65,24 @@ func (s *Service) Settings(ctx context.Context, p identity.Principal, id string)
 		}
 		return tx.QueryRow(ctx, `SELECT s.channel_id,COALESCE(s.account_id::text,''),s.provider,s.model,s.instructions,s.name,s.avatar_url,s.max_bytes,s.allow_agent_switch,s.switch_during_reply,COALESCE(s.active_preset_id::text,''),s.revision,COALESCE(a.status,'disconnected') FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_accounts a ON a.id=s.account_id WHERE s.channel_id=$1`, id).Scan(&out.ChannelID, &out.AccountID, &out.Provider, &out.Model, &out.Instructions, &out.Name, &out.AvatarURL, &out.MaxBytes, &out.AllowAgentSwitch, &out.SwitchDuringReply, &out.ActivePresetID, &out.Revision, &out.ConnectionStatus)
 	})
-	return out, err
+	if err != nil {
+		return Settings{}, err
+	}
+	providerID := provider.ID(out.Provider)
+	out.ProviderName = providerNames[providerID]
+	if adapter := s.adapters[providerID]; adapter != nil && out.Model != "" {
+		models, err := adapter.Models(ctx, provider.Credentials{})
+		if err != nil {
+			return Settings{}, err
+		}
+		for _, model := range models {
+			if model.ID == out.Model {
+				out.ModelName = model.Name
+				break
+			}
+		}
+	}
+	return out, nil
 }
 func (s *Service) SaveSettings(ctx context.Context, p identity.Principal, id string, v SettingsInput) (Settings, error) {
 	if _, err := s.channel(ctx, p, id, true); err != nil {

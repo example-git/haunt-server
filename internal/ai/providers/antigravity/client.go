@@ -161,8 +161,7 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 	if err != nil {
 		return out, err
 	}
-	contents := []json.RawMessage{}
-	for _, m := range r.Messages {
+	encodeMessage := func(m provider.Message) json.RawMessage {
 		parts := []any{}
 		if m.Author != nil {
 			parts = append(parts, map[string]any{"text": provider.AuthorText(m.Author)})
@@ -178,7 +177,11 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 		if role == "assistant" {
 			role = "model"
 		}
-		contents = append(contents, wire.JSON(map[string]any{"role": role, "parts": parts}))
+		return wire.JSON(map[string]any{"role": role, "parts": parts})
+	}
+	contents := make([]json.RawMessage, 0, len(r.Messages))
+	for _, m := range r.Messages {
+		contents = append(contents, encodeMessage(m))
 	}
 	out.Replay = append([]json.RawMessage(nil), r.Replay...)
 	signatures := map[string]string{}
@@ -227,6 +230,9 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 	}
 	out.RoundStart = len(out.Replay)
 	contents = append(contents, out.Replay...)
+	if len(r.ToolMedia) > 0 {
+		contents = append(contents, encodeMessage(provider.Message{Role: "user", Parts: r.ToolMedia}))
+	}
 	maxTokens := r.MaxOutputTokens
 	if maxTokens <= 0 {
 		maxTokens = 8192

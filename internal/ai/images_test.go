@@ -111,7 +111,40 @@ func TestChannelCodexImagesAndReplyScope(t *testing.T) {
 		t.Fatal("missing edit source")
 	}
 	f.s.execute(ctx, reply)
-	_ = check("", 0)
+	next := check("", 0)
+	if _, err := f.ids.SaveArt(ctx, f.p, "avatar", b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	profileCall := provider.ToolCall{ID: "profile", Name: "view_user_profile", Arguments: json.RawMessage(`{"user":"@OWNER"}`)}
+	result, err := f.s.dispatchTool(ctx, f.p, &next, profileCall, newRunActivity())
+	if err != nil || result.IsError || !strings.Contains(result.Content, `"avatar_user_id":"`+f.p.User.ID+`"`) {
+		t.Fatalf("profile lookup: %+v, %v", result, err)
+	}
+	req, err := f.s.context(ctx, f.p, next, adapter, credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	continued := next.profilePictures.visualContext(req)
+	if len(continued.ToolMedia) != 2 || !bytes.Equal(continued.ToolMedia[1].Data, b.Bytes()) {
+		t.Fatal("profile picture did not reach the model")
+	}
+	for _, tool := range []string{"image_generate", "image_edit"} {
+		call := provider.ToolCall{
+			ID: tool, Name: tool,
+			Arguments: json.RawMessage(`{"prompt":"fixture prompt","reference_user_ids":["` + f.p.User.ID + `"]}`),
+		}
+		if _, err := f.s.publishToolImage(ctx, f.p, next, call); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(adapter.inputCounts) != 4 || adapter.inputCounts[2] != 1 || adapter.inputCounts[3] != 1 {
+		t.Fatal("selected profile picture missing from a Codex operation")
+	}
+	f.s.execute(ctx, next)
+	later := check("", 0)
+	if _, err := later.profilePictures.references([]string{f.p.User.ID}); err == nil {
+		t.Fatal("profile reference carried over to the next response")
+	}
 	f.accounting(t)
 }
 func TestCreatePresetWithPortraitRetry(t *testing.T) {

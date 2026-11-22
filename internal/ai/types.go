@@ -33,6 +33,8 @@ type SettingsInput struct {
 }
 type Settings struct {
 	SettingsInput
+	ProviderName     string `json:"provider_name,omitempty"`
+	ModelName        string `json:"model_name,omitempty"`
 	ChannelID        string `json:"channel_id"`
 	ActivePresetID   string `json:"active_preset_id,omitempty"`
 	Revision         int64  `json:"revision"`
@@ -85,6 +87,7 @@ type Turn struct {
 	ChannelID        string     `json:"channel_id"`
 	TriggerMessageID string     `json:"trigger_message_id"`
 	ActorID          string     `json:"actor_id"`
+	ParticipantIDs   []string   `json:"participant_ids,omitempty"`
 	Status           string     `json:"status"`
 	Revision         int64      `json:"revision"`
 	PartialText      string     `json:"partial_text,omitempty"`
@@ -103,6 +106,8 @@ type Usage struct {
 	PrunedThrough    int64 `json:"pruned_through"`
 }
 type snapshot struct {
+	Inputs             []turnInput   `json:"inputs,omitempty"`
+	InputBytes         int           `json:"input_bytes,omitempty"`
 	SelectionSeq       int64         `json:"selection_seq"`
 	PresetInstructions string        `json:"preset_instructions"`
 	Provider           string        `json:"provider"`
@@ -112,4 +117,13 @@ type snapshot struct {
 	Author             chat.AIAuthor `json:"author"`
 	Revision           int64         `json:"revision"`
 	SessionID          string        `json:"session_id"`
+}
+
+// Inputs are stored only for a combined turn. Single-message snapshots from
+// older installations continue to use the turn's original trigger and actor.
+type turnInput struct {
+	MessageID string `json:"message_id"`
+	ActorID   string `json:"actor_id"`
+	SessionID string `json:"session_id"`
+	Seq       int64  `json:"seq"`
 }

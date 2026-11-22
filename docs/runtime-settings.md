@@ -124,16 +124,22 @@ fallbacks. Explicit `CLAUDE_CODE_VERSION`, `CODEX_VERSION` and
 `ANTIGRAVITY_CLI_VERSION` overrides must be valid version strings; invalid values
 fail startup. An active request keeps one identity snapshot.
 
-The server commits the human message and generation turn atomically. A successful
-message POST confirms durable acceptance. One worker generates at a time per
-channel; status and response checkpoints arrive through authorized events. After
+The server commits each human message and its queue assignment together. While
+a response is running, consecutive requests for the same personality can share
+the next response. The model receives one user turn containing each contribution
+in order, with its own author and reply information. An explicit mention that
+selects a different personality starts another batch. Once a batch starts,
+later arrivals wait for the following response. The original posts remain
+individually visible in the channel. The server sends activity and response
+checkpoints through channel events. After
 restart, ambiguous in-flight requests are interrupted and require an explicit retry.
 Partial responses remain visible. A missing account, unsupported selected model,
 permission loss or exhausted storage is reported without substituting providers.
 
-The activity indicator above the composer is shared by channel viewers. A quiet
+The channel header shows the selected provider and model. Everyone viewing the
+channel sees its activity above the composer and any “Replying to” header. A quiet
 provider changes to “Waiting for provider” after two minutes and can still
-complete. The requester or a channel manager can cancel a response. Tool calls
+complete. A contributor to the response or a channel manager can cancel it. Tool calls
 can continue across rounds for the life of the response. Intermediate results
 and provider replay belong to that response.
 
@@ -144,14 +150,23 @@ The reader tries a direct connection first and can use cached public proxy lists
 for a failed route. An unavailable page returns an error for that tool call.
 
 Add a personality to configure its name, description, instructions and avatar.
-Members can mention it to select it for the channel. When a manager enables
+Members can open a personality’s profile by clicking its name or portrait on a
+channel message. They can mention it to select it for the channel. When a manager enables
 agent switching, the agent is instructed to switch only on an explicit request from the
 current user. The default takes effect after the current reply. A manager can instead
 select **During the current reply** to let the new personality continue immediately.
 Earlier text keeps its original author. Removing the last personality restores the base identity.
 
-Channels using Codex can generate images and edit images attached to a request
-or its direct reply target. Both tools authenticate with the selected Codex
+Haunt sends up to ten contextual images to a vision model per request, within
+the server’s image byte limits. Images attached to pending messages and their
+direct reply targets take priority over older history. The `view_user_profile`
+tool can look up a member by user ID or exact username. It returns public profile
+details and makes the portrait available to the current response. For animated
+GIF portraits, the model receives the first frame as a PNG.
+
+Channels using Codex can generate images with a requested member portrait as
+a reference, or edit images from a requesting message, its direct reply target,
+or a profile lookup. Both image tools authenticate with the selected Codex
 connection. Results appear as channel attachments. A later direct reply to
 the image includes it in model input.
 

@@ -39,6 +39,28 @@ func (s *Service) Profile(ctx context.Context, id string) (User, error) {
 	}
 	return users[0], nil
 }
+
+// ProfileWithAvatar reads a single directory-visible user's public profile and
+// its matching avatar in the same snapshot. The selector is an ID or exact username.
+func (s *Service) ProfileWithAvatar(ctx context.Context, selector string) (User, []byte, error) {
+	var id any
+	var username string
+	if ValidID(selector) {
+		id = selector
+	} else {
+		var err error
+		username, err = normalizeUsername(strings.TrimPrefix(selector, "@"))
+		if err != nil {
+			return User{}, nil, err
+		}
+	}
+	var user User
+	var avatar []byte
+	err := s.pool.QueryRow(ctx, `SELECT id,username,display_name,bio,avatar FROM chatxo.users
+		WHERE instance_id=$1 AND deleted_at IS NULL AND (id=$2::uuid OR username=$3)`, s.instanceID, id, username).
+		Scan(&user.ID, &user.Username, &user.DisplayName, &user.Bio, &avatar)
+	return user, avatar, translate(err)
+}
 func (s *Service) SaveProfile(ctx context.Context, p Principal, v ProfileSettingsRequest) (User, error) {
 	v.DisplayName = strings.TrimSpace(v.DisplayName)
 	if !validText(v.DisplayName, 64) || strings.ContainsAny(v.DisplayName, "\r\n") || !validText(v.Bio, 500) || !colorPattern.MatchString(v.AccentColor) {

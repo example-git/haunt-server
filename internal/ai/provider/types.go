@@ -130,6 +130,9 @@ type ToolResult struct {
 	IsError bool   `json:"is_error,omitempty"`
 }
 type Request struct {
+	SupportsVision bool `json:"-"`
+	// ToolMedia accompanies the provider continuation; image bytes never go into replay.
+	ToolMedia             []Part            `json:"-"`
 	Credentials           Credentials       `json:"-"`
 	Model                 string            `json:"model"`
 	StructuralInstruction string            `json:"structural_instruction"`

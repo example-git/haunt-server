@@ -19,6 +19,10 @@ type ProviderInfo struct {
 	RedirectURI  string           `json:"redirect_uri"`
 }
 
+var providerNames = map[provider.ID]string{
+	provider.Claude: "Claude", provider.Codex: "Codex / ChatGPT", provider.Antigravity: "Antigravity",
+}
+
 func (s *Service) Providers(ctx context.Context, p identity.Principal) ([]ProviderInfo, error) {
 	if _, err := s.ids.Refresh(ctx, p); err != nil {
 		return nil, err
@@ -34,7 +38,7 @@ func (s *Service) Providers(ctx context.Context, p identity.Principal) ([]Provid
 			return nil, err
 		}
 		o := a.OAuthConfig()
-		out = append(out, ProviderInfo{ID: string(id), Name: map[provider.ID]string{provider.Claude: "Claude", provider.Codex: "Codex / ChatGPT", provider.Antigravity: "Antigravity"}[id], Models: models, RedirectMode: o.RedirectMode, RedirectURI: o.RedirectURI})
+		out = append(out, ProviderInfo{ID: string(id), Name: providerNames[id], Models: models, RedirectMode: o.RedirectMode, RedirectURI: o.RedirectURI})
 	}
 	return out, nil
 }

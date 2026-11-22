@@ -55,8 +55,7 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 	if err != nil {
 		return out, err
 	}
-	messages := []json.RawMessage{}
-	for _, m := range r.Messages {
+	encodeMessage := func(m provider.Message) json.RawMessage {
 		parts := []any{}
 		if m.Author != nil {
 			parts = append(parts, map[string]any{"type": "text", "text": provider.AuthorText(m.Author)})
@@ -68,7 +67,11 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 				parts = append(parts, map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": p.MIMEType, "data": base64.StdEncoding.EncodeToString(p.Data)}})
 			}
 		}
-		messages = append(messages, wire.JSON(map[string]any{"role": m.Role, "content": parts}))
+		return wire.JSON(map[string]any{"role": m.Role, "content": parts})
+	}
+	messages := make([]json.RawMessage, 0, len(r.Messages))
+	for _, m := range r.Messages {
+		messages = append(messages, encodeMessage(m))
 	}
 	out.Replay = append([]json.RawMessage(nil), r.Replay...)
 	if len(r.ToolResults) > 0 {
@@ -83,6 +86,9 @@ func (c *Client) Generate(ctx context.Context, r provider.Request, emit func(pro
 	}
 	out.RoundStart = len(out.Replay)
 	messages = append(messages, out.Replay...)
+	if len(r.ToolMedia) > 0 {
+		messages = append(messages, encodeMessage(provider.Message{Role: "user", Parts: r.ToolMedia}))
+	}
 	tools := []any{}
 	for _, t := range r.Tools {
 		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Parameters})

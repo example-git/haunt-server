@@ -172,7 +172,7 @@ func TestWorkerSnapshotAttributionAndEarlierResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Messages) != 3 || r.Messages[0].Author.MessageID != first.ID || r.Messages[1].Author.MessageID != second.ID || r.Messages[2].Role != "assistant" {
+	if len(r.Messages) != 3 || r.Messages[0].Author.MessageID != first.ID || r.Messages[1].Role != "assistant" || r.Messages[2].Author.MessageID != second.ID {
 		t.Fatalf("queued boundary omitted prior completion: %#v", r.Messages)
 	}
 	if r.StructuralInstruction == "" || r.Messages[0].Author.UserID != f.p.User.ID || r.Messages[0].Author.Username != "owner" {
@@ -1106,7 +1106,7 @@ func TestAgentSwitchCommitsAfterOriginalPersonalityFinishes(t *testing.T) {
 	chosen := map[string]string{turn.TriggerMessageID: turn.snapshot.Author.ID, inherited.ID: requested.ID, explicit.ID: manual.ID, after.ID: manual.ID}
 	for trigger, want := range chosen {
 		var id string
-		if err = f.s.pool.QueryRow(ctx, `SELECT snapshot->'author'->>'id' FROM chatxo.ai_turns WHERE trigger_message_id=$1`, trigger).Scan(&id); err != nil || id != want {
+		if err = f.s.pool.QueryRow(ctx, `SELECT snapshot->'author'->>'id' FROM chatxo.ai_turns WHERE trigger_message_id=$1 OR snapshot->'inputs' @> jsonb_build_array(jsonb_build_object('message_id',$1::uuid))`, trigger).Scan(&id); err != nil || id != want {
 			t.Fatalf("trigger %s expected %s got %s (%v)", trigger, want, id, err)
 		}
 	}

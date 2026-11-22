@@ -11,16 +11,18 @@ import (
 	"log/slog"
 	"math"
 	"regexp"
+	"slices"
 	"time"
 )
 
 var presetMention = regexp.MustCompile(`<@ai:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>`)
 
-const turnColumns = `id,channel_id,trigger_message_id,actor_id,status,revision,partial_text,error_code,retry_at,created_at,updated_at,action,detail,last_progress_at`
+const turnColumns = `id,channel_id,trigger_message_id,actor_id,status,revision,partial_text,error_code,retry_at,created_at,updated_at,action,detail,last_progress_at,
+	ARRAY(SELECT DISTINCT member->>'actor_id' FROM jsonb_array_elements(snapshot->'inputs') member ORDER BY 1)`
 
 func scanTurn(row interface{ Scan(...any) error }) (Turn, error) {
 	var t Turn
-	err := row.Scan(&t.ID, &t.ChannelID, &t.TriggerMessageID, &t.ActorID, &t.Status, &t.Revision, &t.PartialText, &t.ErrorCode, &t.RetryAt, &t.CreatedAt, &t.UpdatedAt, &t.Action, &t.Detail, &t.LastProgressAt)
+	err := row.Scan(&t.ID, &t.ChannelID, &t.TriggerMessageID, &t.ActorID, &t.Status, &t.Revision, &t.PartialText, &t.ErrorCode, &t.RetryAt, &t.CreatedAt, &t.UpdatedAt, &t.Action, &t.Detail, &t.LastProgressAt, &t.ParticipantIDs)
 	return t, err
 }
 func (s *Service) Accept(ctx context.Context, tx pgx.Tx, p identity.Principal, m chat.Message) error {
@@ -80,12 +82,23 @@ func (s *Service) Accept(ctx context.Context, tx pgx.Tx, p identity.Principal, m
 	if err != nil {
 		return err
 	}
-	raw, _ := json.Marshal(snap)
 	status, code := "queued", ""
 	if snap.AccountID == "" || snap.Model == "" {
 		status = "requires_auth"
 		code = "configuration_required"
+	} else {
+		batchID, err := s.appendPending(ctx, tx, m, snap, epoch)
+		if err != nil {
+			return err
+		}
+		if batchID != "" {
+			if err = s.emitTurn(ctx, tx, batchID); err != nil {
+				return err
+			}
+			return s.enforceProtected(ctx, tx, ch.ID, batchID)
+		}
 	}
+	raw, _ := json.Marshal(snap)
 	t := identity.NewID()
 	reserve, err := s.reservation(ctx, tx, ch.ID)
 	if err != nil {
@@ -159,7 +172,7 @@ func (s *Service) changeTurn(ctx context.Context, p identity.Principal, ch, id s
 		if err = tx.QueryRow(ctx, `SELECT response_request_id FROM chatxo.ai_turns WHERE id=$1`, id).Scan(&cancelRequest); err != nil {
 			return err
 		}
-		if t.ActorID != p.User.ID && channel.Permissions&identity.ManageChannels == 0 {
+		if t.ActorID != p.User.ID && !slices.Contains(t.ParticipantIDs, p.User.ID) && channel.Permissions&identity.ManageChannels == 0 {
 			return identity.ErrForbidden
 		}
 		if retry {
@@ -178,6 +191,11 @@ func (s *Service) changeTurn(ctx context.Context, p identity.Principal, ch, id s
 				return e
 			}
 			snap.SessionID = p.SessionID
+			for i := range snap.Inputs {
+				if snap.Inputs[i].ActorID == p.User.ID {
+					snap.Inputs[i].SessionID = p.SessionID
+				}
+			}
 			reserve, e := s.reservation(ctx, tx, ch)
 			if e != nil {
 				return e
@@ -233,6 +251,7 @@ type claimedTurn struct {
 	messageRequest  string
 	pendingPreset   string
 	hadToolCall     bool
+	profilePictures profilePictures
 }
 
 func (s *Service) claim(ctx context.Context) (claimedTurn, error) {
@@ -245,12 +264,15 @@ func (s *Service) claim(ctx context.Context) (claimedTurn, error) {
 	var t claimedTurn
 	err := s.transaction(ctx, func(tx pgx.Tx) error {
 		var raw []byte
-		err := tx.QueryRow(ctx, `SELECT t.id,t.channel_id,t.trigger_message_id,t.actor_id,t.snapshot,t.boundary_seq,t.history_epoch,t.attempt,t.response_request_id FROM chatxo.ai_turns t WHERE NOT (t.channel_id=ANY($1::uuid[])) AND (t.status='queued' OR (t.status='waiting' AND t.retry_at<=now())) AND NOT EXISTS(SELECT 1 FROM chatxo.ai_turns active WHERE active.channel_id=t.channel_id AND active.status='running') AND NOT EXISTS(SELECT 1 FROM chatxo.ai_turns earlier WHERE earlier.channel_id=t.channel_id AND earlier.status IN ('queued','waiting') AND (earlier.created_at,earlier.id)<(t.created_at,t.id)) ORDER BY t.created_at,t.id LIMIT 1 FOR UPDATE OF t SKIP LOCKED`, busy).Scan(&t.ID, &t.ChannelID, &t.TriggerMessageID, &t.ActorID, &raw, &t.boundary, &t.epoch, &t.attempt, &t.responseRequest)
+		err := tx.QueryRow(ctx, `SELECT t.id,t.channel_id,t.trigger_message_id,t.actor_id,t.snapshot,t.boundary_seq,t.history_epoch,t.attempt,t.response_request_id FROM chatxo.ai_turns t WHERE NOT (t.channel_id=ANY($1::uuid[])) AND (t.status='queued' OR (t.status='waiting' AND t.retry_at<=now())) AND NOT EXISTS(SELECT 1 FROM chatxo.ai_turns active WHERE active.channel_id=t.channel_id AND active.status='running') AND NOT EXISTS(SELECT 1 FROM chatxo.ai_turns earlier WHERE earlier.channel_id=t.channel_id AND earlier.status IN ('queued','waiting') AND earlier.boundary_seq<t.boundary_seq) ORDER BY t.created_at,t.id LIMIT 1 FOR UPDATE OF t SKIP LOCKED`, busy).Scan(&t.ID, &t.ChannelID, &t.TriggerMessageID, &t.ActorID, &raw, &t.boundary, &t.epoch, &t.attempt, &t.responseRequest)
 		if err != nil {
 			return err
 		}
 		if err = json.Unmarshal(raw, &t.snapshot); err != nil {
 			return err
+		}
+		if n := len(t.snapshot.Inputs); n > 0 {
+			t.boundary = t.snapshot.Inputs[n-1].Seq
 		}
 		var before, remaining int64
 		if err = tx.QueryRow(ctx, channelUsageSQL, t.ChannelID).Scan(&before); err != nil {
@@ -355,27 +377,44 @@ func (s *Service) recover(ctx context.Context) error {
 	return err
 }
 func (s *Service) checkExecution(ctx context.Context, t claimedTurn) (identity.Principal, error) {
-	p, err := s.ids.Refresh(ctx, identity.Principal{SessionID: t.snapshot.SessionID})
+	p, err := s.authorizeInput(ctx, t.ChannelID, t.ActorID, t.snapshot.SessionID)
 	if err != nil {
 		return p, err
 	}
-	if p.User.ID != t.ActorID {
+	for _, input := range t.otherRequesters() {
+		if _, err = s.authorizeInput(ctx, t.ChannelID, input.ActorID, input.SessionID); err != nil {
+			return p, err
+		}
+	}
+	return p, s.checkTurnState(ctx, t)
+}
+
+func (s *Service) checkTurnState(ctx context.Context, t claimedTurn) error {
+	var valid bool
+	err := s.pool.QueryRow(ctx, `SELECT t.status='running' AND t.history_epoch=s.history_epoch AND t.history_epoch=$2 AND EXISTS(SELECT 1 FROM chatxo.messages m WHERE m.id=t.trigger_message_id AND NOT m.deleted) FROM chatxo.ai_turns t JOIN chatxo.ai_channel_settings s ON s.channel_id=t.channel_id WHERE t.id=$1 AND t.attempt=$3 AND t.response_request_id=$4`, t.ID, t.epoch, t.attempt, t.responseRequest).Scan(&valid)
+	if err != nil {
+		return translate(err)
+	}
+	if !valid {
+		return ErrHistoryChanged
+	}
+	return nil
+}
+
+func (s *Service) authorizeInput(ctx context.Context, channelID, actorID, sessionID string) (identity.Principal, error) {
+	p, err := s.ids.Refresh(ctx, identity.Principal{SessionID: sessionID})
+	if err != nil {
+		return p, err
+	}
+	if p.User.ID != actorID {
 		return p, identity.ErrForbidden
 	}
-	ch, err := s.ids.Channel(ctx, p, t.ChannelID)
+	ch, err := s.ids.Channel(ctx, p, channelID)
 	if err != nil {
 		return p, err
 	}
 	if ch.Permissions&(identity.ViewChannel|identity.SendMessages|identity.UseAI) != (identity.ViewChannel | identity.SendMessages | identity.UseAI) {
 		return p, identity.ErrForbidden
-	}
-	var valid bool
-	err = s.pool.QueryRow(ctx, `SELECT t.status='running' AND t.history_epoch=s.history_epoch AND t.history_epoch=$2 AND EXISTS(SELECT 1 FROM chatxo.messages m WHERE m.id=t.trigger_message_id AND NOT m.deleted) FROM chatxo.ai_turns t JOIN chatxo.ai_channel_settings s ON s.channel_id=t.channel_id WHERE t.id=$1 AND t.attempt=$3 AND t.response_request_id=$4`, t.ID, t.epoch, t.attempt, t.responseRequest).Scan(&valid)
-	if err != nil {
-		return p, translate(err)
-	}
-	if !valid {
-		return p, ErrHistoryChanged
 	}
 	return p, nil
 }
@@ -392,6 +431,8 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 		defer close(monitorDone)
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
+		requesters := append([]turnInput{{ActorID: observed.ActorID, SessionID: observed.snapshot.SessionID}}, observed.otherRequesters()...)
+		nextRequester := 0
 		for {
 			select {
 			case <-ctx.Done():
@@ -403,7 +444,15 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 						return
 					}
 				}
-				if _, err := s.checkExecution(ctx, observed); err != nil {
+				// Rotate through distinct sessions during an idle stream. Each round and
+				// tool dispatch independently revalidates every contributing requester.
+				input := requesters[nextRequester]
+				nextRequester = (nextRequester + 1) % len(requesters)
+				if _, err := s.authorizeInput(ctx, observed.ChannelID, input.ActorID, input.SessionID); err != nil {
+					stop(err)
+					return
+				}
+				if err := s.checkTurnState(ctx, observed); err != nil {
 					stop(err)
 					return
 				}
@@ -450,7 +499,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 		}
 		activity.set("provider", "", true)
 		callStart := len(text)
-		response, e := a.Generate(ctx, req, func(event provider.Event) error {
+		response, e := a.Generate(ctx, t.profilePictures.visualContext(req), func(event provider.Event) error {
 			switch event.Type {
 			case "submitted", "reasoning", "tool_arguments", "tool_call":
 				activity.set("provider", "", true)

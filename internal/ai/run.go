@@ -83,6 +83,7 @@ func toolDetail(call provider.ToolCall) string {
 	var args struct {
 		URL   string `json:"url"`
 		Query string `json:"query"`
+		User  string `json:"user"`
 	}
 	_ = json.Unmarshal(call.Arguments, &args)
 	detail := call.Name
@@ -93,6 +94,9 @@ func toolDetail(call provider.ToolCall) string {
 	}
 	if call.Name == "web_search" && args.Query != "" {
 		detail = args.Query
+	}
+	if call.Name == "view_user_profile" && args.User != "" {
+		detail = args.User
 	}
 	return shortText(detail, 128)
 }
@@ -109,7 +113,7 @@ func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *cla
 	detail := toolDetail(call)
 	action := "tool_running"
 	switch call.Name {
-	case "image_generate", "image_edit", "switch_personality", "web_search", "read_url":
+	case "image_generate", "image_edit", "switch_personality", "web_search", "read_url", "view_user_profile":
 		action = call.Name
 	}
 	a.set(action, detail, true)
@@ -123,6 +127,8 @@ func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *cla
 		a.set(state, shortText(description, 128), false)
 	})
 	switch call.Name {
+	case "view_user_profile":
+		return s.viewUserProfile(ctx, t, call)
 	case "image_generate", "image_edit":
 		if t.snapshot.Provider == string(provider.Codex) {
 			return s.runImageTool(ctx, p, *t, call)

@@ -288,6 +288,9 @@ func ValidateModel(r provider.Request, models []provider.Model) error {
 	}
 	for _, m := range models {
 		if m.ID == r.Model {
+			if len(r.ToolMedia) > 0 && !m.Vision {
+				return &provider.Error{Kind: provider.InvalidRequest, Message: "selected model does not support tool images"}
+			}
 			for _, message := range r.Messages {
 				for _, p := range message.Parts {
 					if p.Type == "image" && !m.Vision {

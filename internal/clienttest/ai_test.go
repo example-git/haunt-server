@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/example-git/haunt-server/internal/ai"
 	"github.com/example-git/haunt-server/internal/ai/provider"
@@ -58,9 +59,11 @@ func aiFixture(t *testing.T, ctx context.Context, cfg config.Config, pool postgr
 		}
 		users, images, persona := map[string]bool{}, 0, ""
 		latestInput, toolOK, hasToolResult := "", false, false
+		var latestAuthors []string
 		for _, message := range request.Messages {
 			if message.Role == "user" {
 				latestInput = ""
+				latestAuthors = nil
 			}
 			for _, part := range message.Content {
 				if message.Role == "user" && part.Type == "text" {
@@ -84,9 +87,18 @@ func aiFixture(t *testing.T, ctx context.Context, cfg config.Config, pool postgr
 					}
 					if json.Unmarshal([]byte(raw), &author) == nil && author.Username != "" {
 						users[author.Username] = true
+						latestAuthors = append(latestAuthors, author.Username)
 					}
 				}
 			}
+		}
+		if strings.HasSuffix(latestInput, "Hold this fixture response until cancellation.") {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(45 * time.Second):
+				http.Error(w, "Batch check did not cancel its held request", http.StatusServiceUnavailable)
+			}
+			return
 		}
 		for _, part := range request.System {
 			if _, rest, found := strings.Cut(part.Text, "Selected assistant identity: "); found {
@@ -99,6 +111,9 @@ func aiFixture(t *testing.T, ctx context.Context, cfg config.Config, pool postgr
 		}
 		sort.Strings(names)
 		reply := fmt.Sprintf("AI fixture reply; users=%s; images=%d; persona=%s", strings.Join(names, ","), images, persona)
+		if strings.Contains(latestInput, "Queue check") {
+			reply += "; batch authors=" + strings.Join(latestAuthors, ",")
+		}
 		if hasToolResult {
 			reply += fmt.Sprintf("; tools=read_url; tool_ok=%t", toolOK)
 		}
