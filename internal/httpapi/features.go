@@ -102,7 +102,7 @@ func NewFeatures(ctx context.Context, c config.Config, pool postgres.Pool, ids *
 		return nil, err
 	}
 	policy := c.Policy.WithDefaults()
-	f.AI, err = ai.New(ctx, pool, ids, store, media, ai.Options{InstanceID: c.InstanceID, DiffbotKey:c.DiffbotKey, DataDir: c.DataDir, ChannelMaxBytes: policy.AIChannelMaxBytes, GlobalMaxBytes: policy.AITextMaxBytes}, providers.New(f.ClientIdentities, nil))
+	f.AI, err = ai.New(ctx, pool, ids, store, media, ai.Options{InstanceID: c.InstanceID, DiffbotKey: c.DiffbotKey, DataDir: c.DataDir, ChannelMaxBytes: policy.AIChannelMaxBytes, GlobalMaxBytes: policy.AITextMaxBytes}, providers.New(f.ClientIdentities, nil))
 	if err != nil {
 		f.Close(ctx)
 		return nil, err
@@ -400,7 +400,7 @@ func (f *Features) routes(a *api, mux routeRegistrar) {
 			a.fail(w, r, err)
 			return
 		}
-		item, err := f.Chat.Create(r.Context(), p, r.PathValue("id"), body.Request, body.Body, body.Reply, body.Attachments)
+		item, err := f.Chat.CreateWithVisibility(r.Context(), p, r.PathValue("id"), body.Request, body.Body, body.Reply, body.Attachments, body.HiddenFromAI)
 		if err != nil {
 			a.fail(w, r, err)
 			return

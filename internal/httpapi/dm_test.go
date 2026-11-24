@@ -155,6 +155,46 @@ func TestDMQuotaRetentionTransfersAndPurge(t *testing.T) {
 		t.Fatal("DM age retention not applied")
 	}
 }
+func TestDMAttachmentRolloverRespectsSenderAndServerBudgets(t *testing.T) {
+	f, _ := featureFixture(t, 256_000_000)
+	alice := f.register(t, "alice_rollover")
+	bob := f.register(t, "bob_rollover")
+	dm := dmConversation(t, f, f.owner.Token, alice.User.ID, bob.User.ID)
+	cfg := getConfiguration(t, f).RuntimeConfiguration
+	cfg.Settings.Limits.DM.ImageMaxBytes = 1024
+	cfg.Settings.Limits.DM.UserStorageBytes = 1024
+	cfg.Settings.Limits.DM.StorageBytes = 2048
+	saveConfiguration(t, f, cfg)
+	send := func(token string) string {
+		t.Helper()
+		status, a, err := dmUpload(f, token, dm.ID, 1024, true)
+		if err != nil || status != 201 {
+			t.Fatal(status, err)
+		}
+		f.call(t, "POST", "/api/v1/conversations/"+dm.ID+"/messages", token,
+			map[string]any{"body": "keep", "request_id": identity.NewID(), "attachment_ids": []string{a.ID}}, 201, nil)
+		return a.ID
+	}
+	oldest := send(alice.Token)
+	previous := send(bob.Token)
+	replacement := send(bob.Token)
+	metadata := func(id string, code int) {
+		t.Helper()
+		f.call(t, "GET", "/api/v1/attachments/"+id+"/metadata", f.owner.Token, nil, code, nil)
+	}
+	metadata(oldest, 200)
+	metadata(previous, 404)
+	latest := send(f.owner.Token)
+	metadata(oldest, 404)
+	metadata(replacement, 200)
+	metadata(latest, 200)
+	var usage attachments.DMUsage
+	f.call(t, "GET", "/api/v1/me/dm-storage", bob.Token, nil, 200, &usage)
+	if usage.UsedBytes != 1024 || usage.UploadedToday != 2048 {
+		t.Fatal("rollover broke storage or transfer accounting", usage)
+	}
+}
+
 func enrollDMDevice(t *testing.T, f *fixture, login identity.Login) (chat.DMDevice, chat.DMKeyPackage) {
 	t.Helper()
 	public, private, _ := ed25519.GenerateKey(rand.Reader)

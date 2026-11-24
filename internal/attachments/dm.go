@@ -66,7 +66,7 @@ func (s *Store) ReserveDMDownload(ctx context.Context, p identity.Principal, a A
 func (s *Store) DMUsage(ctx context.Context, p identity.Principal) (DMUsage, error) {
 	policy := s.chat.CurrentPolicy().DM
 	out := DMUsage{Policy: policy, LimitBytes: policy.UserStorageBytes}
-	err := s.chat.Pool.QueryRow(ctx, `SELECT COALESCE(sum(bytes),0),count(*) FROM chatxo.attachments WHERE is_dm AND user_id=$1`, p.User.ID).Scan(&out.UsedBytes, &out.Uploads)
+	err := s.chat.Pool.QueryRow(ctx, `SELECT COALESCE(sum(bytes),0),count(*) FROM chatxo.attachments WHERE is_dm AND NOT quota_pending AND user_id=$1`, p.User.ID).Scan(&out.UsedBytes, &out.Uploads)
 	if err != nil {
 		return out, err
 	}

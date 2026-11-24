@@ -138,8 +138,8 @@ func (s *Service) editImageInputs(ctx context.Context, p identity.Principal, t c
 		return nil, nil
 	}
 	rows, err := s.pool.Query(ctx, `SELECT m.attachment_ids || COALESCE(r.attachment_ids,'{}'::uuid[])
-		FROM chatxo.messages m LEFT JOIN chatxo.messages r ON r.id=m.reply_to_id AND r.conversation_id=m.conversation_id AND NOT r.deleted
-		WHERE m.id=ANY($1::uuid[]) AND m.conversation_id=$2 AND NOT m.deleted ORDER BY m.seq DESC`, t.inputIDs(), t.ChannelID)
+		FROM chatxo.messages m LEFT JOIN chatxo.messages r ON r.id=m.reply_to_id AND r.conversation_id=m.conversation_id AND r.ai_visible AND NOT r.deleted
+		WHERE m.id=ANY($1::uuid[]) AND m.conversation_id=$2 AND m.ai_visible AND NOT m.deleted ORDER BY m.seq DESC`, t.inputIDs(), t.ChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +159,9 @@ func (s *Service) editImageInputs(ctx context.Context, p identity.Principal, t c
 				continue
 			}
 			meta, file, err := s.attachments.Get(ctx, p, id)
+			if errors.Is(err, identity.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}

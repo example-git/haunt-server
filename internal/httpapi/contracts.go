@@ -75,10 +75,11 @@ type CreateDMRequest struct {
 }
 
 type CreateMessageRequest struct {
-	Body        string   `json:"body" description:"Nonblank body or at least one attachment. UTF-8 bytes are bounded by installation policy (at most 64 KiB)."`
-	Request     string   `json:"request_id" required:"true" format:"uuid"`
-	Reply       string   `json:"reply_to_id,omitempty" format:"uuid" description:"Message in the same conversation to reference as a reply."`
-	Attachments []string `json:"attachment_ids" maxItems:"8"`
+	HiddenFromAI bool     `json:"hidden_from_ai,omitempty" description:"AI channels only. A hidden message is visible to members and permanently excluded from AI responses and context."`
+	Body         string   `json:"body" description:"Nonblank body or at least one attachment. UTF-8 bytes are bounded by installation policy (at most 64 KiB)."`
+	Request      string   `json:"request_id" required:"true" format:"uuid"`
+	Reply        string   `json:"reply_to_id,omitempty" format:"uuid" description:"Message in the same conversation to reference as a reply."`
+	Attachments  []string `json:"attachment_ids" maxItems:"8"`
 }
 
 type EditMessageRequest struct {

@@ -82,7 +82,7 @@ func (s *Service) context(ctx context.Context, p identity.Principal, t claimedTu
 	inputIDs := t.inputIDs()
 	rows, err := s.pool.Query(ctx, `WITH history AS (
 		SELECT m.id,m.seq,false AS current_input FROM chatxo.messages m
-		WHERE m.conversation_id=$1 AND NOT m.deleted AND NOT (m.id=ANY($4::uuid[]))
+		WHERE m.conversation_id=$1 AND m.ai_visible AND NOT m.deleted AND NOT (m.id=ANY($4::uuid[]))
 		AND (m.seq<=$2 OR (m.author_id IS NULL AND EXISTS (
 			SELECT 1 FROM chatxo.ai_turns previous
 			WHERE previous.response_request_id=COALESCE(m.ai_response_request_id,m.request_id)
@@ -90,14 +90,14 @@ func (s *Service) context(ctx context.Context, p identity.Principal, t claimedTu
 		ORDER BY m.seq DESC LIMIT $5
 	), selected AS (
 		SELECT * FROM history UNION ALL
-		SELECT m.id,m.seq,true FROM chatxo.messages m WHERE m.id=ANY($4::uuid[]) AND m.conversation_id=$1 AND NOT m.deleted
+		SELECT m.id,m.seq,true FROM chatxo.messages m WHERE m.id=ANY($4::uuid[]) AND m.conversation_id=$1 AND m.ai_visible AND NOT m.deleted
 	)
 	SELECT m.id,COALESCE(m.author_id::text,''),m.ai_author,m.body,m.attachment_ids,COALESCE(u.username,''),COALESCE(u.display_name,''),
-		COALESCE(m.reply_to_id::text,''),COALESCE(r.author_id::text,''),COALESCE(ru.username,''),COALESCE(ru.display_name,''),
+		COALESCE(r.id::text,''),COALESCE(r.author_id::text,''),COALESCE(ru.username,''),COALESCE(ru.display_name,''),
 		r.ai_author,COALESCE(r.attachment_ids,'{}'::uuid[]),selected.current_input
 	FROM selected JOIN chatxo.messages m ON m.id=selected.id
 	LEFT JOIN chatxo.users u ON u.id=m.author_id
-	LEFT JOIN chatxo.messages r ON r.id=m.reply_to_id AND r.conversation_id=m.conversation_id AND NOT r.deleted
+	LEFT JOIN chatxo.messages r ON r.id=m.reply_to_id AND r.conversation_id=m.conversation_id AND r.ai_visible AND NOT r.deleted
 	LEFT JOIN chatxo.users ru ON ru.id=r.author_id
 	ORDER BY selected.current_input DESC,selected.seq DESC LIMIT $5`, t.ChannelID, t.boundary, t.ID, inputIDs, historyMessageLimit)
 	if err != nil {
@@ -183,6 +183,9 @@ func (s *Service) context(ctx context.Context, p identity.Principal, t claimedTu
 				return req, errors.New("attachment_reader_unavailable")
 			}
 			meta, file, e := s.attachments.Get(ctx, p, id)
+			if errors.Is(e, identity.ErrNotFound) {
+				continue
+			}
 			if e != nil {
 				return req, e
 			}

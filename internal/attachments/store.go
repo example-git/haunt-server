@@ -31,6 +31,7 @@ var ErrMedia = errors.New("unsupported_or_invalid_media")
 type Attachment struct {
 	IsDM           bool `json:"is_dm"`
 	Encrypted      bool `json:"encrypted"`
+	quotaPending   bool
 	provider       *string
 	policy         config.Policy
 	ID             string     `json:"id"`
@@ -48,6 +49,7 @@ type Store struct {
 	probe     string
 	lock      *os.File
 	slots     chan struct{}
+	admission chan struct{}
 }
 
 func New(ctx context.Context, c config.Config, ch *chat.Store) (*Store, error) {
@@ -70,7 +72,7 @@ func New(ctx context.Context, c config.Config, ch *chat.Store) (*Store, error) {
 		lock.Close()
 		return nil, fmt.Errorf("attachment directory is already owned by a running process")
 	}
-	s := &Store{chat: ch, dir: root, probe: probe, lock: lock, slots: make(chan struct{}, 2)}
+	s := &Store{chat: ch, dir: root, probe: probe, lock: lock, slots: make(chan struct{}, 2), admission: make(chan struct{}, 1)}
 	s.Providers, err = blobstore.New(ctx, ch.Pool, ch.Identity, c.DataDir, c.InstanceID)
 	if err != nil {
 		s.Close()
@@ -85,6 +87,10 @@ func New(ctx context.Context, c config.Config, ch *chat.Store) (*Store, error) {
 func (s *Store) Close() error          { return s.lock.Close() }
 func (s *Store) path(id string) string { return filepath.Join(s.dir, id) }
 func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name string, size int64, encrypted bool, generation string) (Attachment, error) {
+	if err := s.lockAdmission(ctx); err != nil {
+		return Attachment{}, err
+	}
+	defer s.unlockAdmission()
 	if err := s.chat.Access(ctx, p, conv, true); err != nil {
 		return Attachment{}, err
 	}
@@ -93,7 +99,6 @@ func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name st
 		return Attachment{}, err
 	}
 	defer tx.Rollback(ctx)
-	var used int64
 	if err = s.chat.LockStorage(ctx, tx); err != nil {
 		return Attachment{}, err
 	}
@@ -128,20 +133,30 @@ func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name st
 	if size < 1 || size > max || len(name) < 1 || len(name) > 128 || strings.ContainsAny(name, "\x00\r\n/\\") {
 		return Attachment{}, identity.ErrInvalid
 	}
-	if err = tx.QueryRow(ctx, `SELECT attachment_bytes-dm_attachment_bytes FROM chatxo.storage WHERE singleton`).Scan(&used); err != nil {
+	a := Attachment{IsDM: isDM, Encrypted: encrypted, ID: identity.NewID(), ConversationID: conv, UserID: p.User.ID, Filename: name, Bytes: size, policy: policy}
+	if generation != "" {
+		a.UserID = ""
+	}
+	space, err := a.spaceNeeded(ctx, tx, policy)
+	if err != nil {
 		return Attachment{}, err
 	}
-	if !isDM && size > policy.AttachmentMaxBytes-used {
-		return Attachment{}, ErrFull
-	}
-	if isDM {
-		var own, all int64
-		if err = tx.QueryRow(ctx, `SELECT COALESCE((SELECT sum(bytes) FROM chatxo.attachments WHERE is_dm AND user_id=$1),0),dm_attachment_bytes FROM chatxo.storage WHERE singleton`, p.User.ID).Scan(&own, &all); err != nil {
+	a.quotaPending = space.needed()
+	if a.quotaPending {
+		// Count abandoned remote writes as well as live replacements until
+		// cleanup succeeds, so failed deletes cannot grow staging unbounded.
+		var staged int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM chatxo.attachments WHERE quota_pending`).Scan(&staged); err != nil {
 			return Attachment{}, err
 		}
-		if size > policy.DM.UserStorageBytes-own || size > policy.DM.StorageBytes-all {
-			return Attachment{}, ErrDMFull
+		if staged >= cap(s.slots) {
+			return Attachment{}, identity.ErrBusy
 		}
+		if err = a.checkReclaimable(ctx, tx, space); err != nil {
+			return Attachment{}, err
+		}
+	}
+	if isDM {
 		if err = chargeDMTransfer(ctx, tx, p.User.ID, size, true, policy.DM); err != nil {
 			return Attachment{}, err
 		}
@@ -153,18 +168,16 @@ func (s *Store) reserve(ctx context.Context, p identity.Principal, conv, name st
 	if active >= 4 {
 		return Attachment{}, identity.ErrBusy
 	}
-	a := Attachment{IsDM: isDM, Encrypted: encrypted, ID: identity.NewID(), ConversationID: conv, UserID: p.User.ID, Filename: name, Bytes: size, policy: policy}
-	if generation != "" {
-		a.UserID = ""
-	}
 	if err = tx.QueryRow(ctx, `SELECT (SELECT id FROM chatxo.storage_providers WHERE active)`).Scan(&a.provider); err != nil {
 		return Attachment{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO chatxo.attachments(id,conversation_id,user_id,status,filename,bytes,expires_at,storage_provider_id,is_dm,encrypted,ai_generation_id) VALUES($1,$2,NULLIF($3,'')::uuid,'uploading',$4,$5,now()+interval '10 minutes',$6,$7,$8,NULLIF($9,'')::uuid)`, a.ID, conv, a.UserID, name, size, a.provider, isDM, encrypted, generation); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO chatxo.attachments(id,conversation_id,user_id,status,filename,bytes,expires_at,storage_provider_id,is_dm,encrypted,ai_generation_id,quota_pending) VALUES($1,$2,NULLIF($3,'')::uuid,'uploading',$4,$5,now()+interval '10 minutes',$6,$7,$8,NULLIF($9,'')::uuid,$10)`, a.ID, conv, a.UserID, name, size, a.provider, isDM, encrypted, generation, a.quotaPending); err != nil {
 		return Attachment{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE chatxo.storage SET attachment_bytes=attachment_bytes+$1 WHERE singleton`, size); err != nil {
-		return Attachment{}, err
+	if !a.quotaPending {
+		if _, err = tx.Exec(ctx, `UPDATE chatxo.storage SET attachment_bytes=attachment_bytes+$1 WHERE singleton`, size); err != nil {
+			return Attachment{}, err
+		}
 	}
 	return a, tx.Commit(ctx)
 }
@@ -265,24 +278,8 @@ func (s *Store) upload(ctx context.Context, p identity.Principal, conv, name str
 		}
 
 	}
-	tx, err := s.chat.Pool.Begin(ctx)
-	if err != nil {
-		return Attachment{}, err
-	}
-	defer tx.Rollback(ctx)
-	if err = s.chat.LockStorage(ctx, tx); err != nil {
-		return Attachment{}, err
-	}
 	a.ContentType = mediaType
-	retention := a.policy.AttachmentRetentionDays
-	if a.IsDM {
-		retention = 1
-	} // unclaimed DM uploads expire; claiming sets DM retention
-	err = tx.QueryRow(ctx, `UPDATE chatxo.attachments SET status='ready',content_type=$2,created_at=clock_timestamp(),expires_at=clock_timestamp()+$3::bigint*interval '1 day' WHERE id=$1 AND status='uploading' RETURNING expires_at`, a.ID, mediaType, retention).Scan(&a.ExpiresAt)
-	if err != nil {
-		return Attachment{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = s.finishUpload(ctx, fresh, &a); err != nil {
 		return Attachment{}, err
 	}
 	complete = true
@@ -498,15 +495,18 @@ func (s *Store) remove(ctx context.Context, id string) error {
 		return err
 	}
 	var size int64
-	err = tx.QueryRow(ctx, `DELETE FROM chatxo.attachments WHERE id=$1 AND status='deleting' RETURNING bytes`, id).Scan(&size)
+	var pending bool
+	err = tx.QueryRow(ctx, `DELETE FROM chatxo.attachments WHERE id=$1 AND status='deleting' RETURNING bytes,quota_pending`, id).Scan(&size, &pending)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE chatxo.storage SET attachment_bytes=attachment_bytes-$1 WHERE singleton`, size); err != nil {
-		return err
+	if !pending {
+		if _, err = tx.Exec(ctx, `UPDATE chatxo.storage SET attachment_bytes=attachment_bytes-$1 WHERE singleton`, size); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -633,7 +633,7 @@ func (s *Store) reconcile(ctx context.Context) error {
 		}
 	}
 	var accounted int64
-	if err := s.chat.Pool.QueryRow(ctx, `SELECT attachment_bytes-(SELECT COALESCE(sum(bytes),0) FROM chatxo.attachments) FROM chatxo.storage WHERE singleton`).Scan(&accounted); err != nil {
+	if err := s.chat.Pool.QueryRow(ctx, `SELECT attachment_bytes-(SELECT COALESCE(sum(bytes),0) FROM chatxo.attachments WHERE NOT quota_pending) FROM chatxo.storage WHERE singleton`).Scan(&accounted); err != nil {
 		return err
 	}
 	if accounted != 0 {

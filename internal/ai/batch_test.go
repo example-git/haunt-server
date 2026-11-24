@@ -98,6 +98,65 @@ func TestPendingMessagesBatchAcrossUsersAndSplitAtPersonalityChange(t *testing.T
 	f.accounting(t)
 }
 
+func TestHiddenPostNeverEntersTurnsHistoryOrImageInputs(t *testing.T) {
+	f := fixture(t, 8<<20)
+	ctx := context.Background()
+	var data bytes.Buffer
+	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	a, err := f.s.attachments.Upload(ctx, f.p, f.channel.ID, "private.png", int64(data.Len()), &data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An unknown personality mention would fail a visible post.
+	body := "members only <@ai:" + identity.NewID() + ">"
+	request := identity.NewID()
+	hidden, err := f.ch.CreateWithVisibility(ctx, f.p, f.channel.ID, request, body, "", []string{a.ID}, true)
+	if err != nil || !hidden.HiddenFromAI {
+		t.Fatal("hidden post", err)
+	}
+	again, err := f.ch.CreateWithVisibility(ctx, f.p, f.channel.ID, request, body, "", []string{a.ID}, true)
+	if err != nil || again.ID != hidden.ID {
+		t.Fatal("hidden retry", err)
+	}
+	if _, err = f.ch.Create(ctx, f.p, f.channel.ID, request, body, "", []string{a.ID}); !errors.Is(err, identity.ErrConflict) {
+		t.Fatal("retry changed message visibility", err)
+	}
+	if _, err = f.s.claim(ctx); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("hidden post triggered a turn", err)
+	}
+	visible, err := f.ch.Create(ctx, f.p, f.channel.ID, identity.NewID(), "visible reply", hidden.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := f.claim(t)
+	edited, err := f.ch.Edit(ctx, f.p, f.channel.ID, hidden.ID, "still hidden", false)
+	if err != nil || !edited.HiddenFromAI {
+		t.Fatal("edit lost visibility", err)
+	}
+	if _, err = f.s.checkExecution(ctx, turn); err != nil {
+		t.Fatal("hidden edit interrupted the visible turn", err)
+	}
+	adapter, credentials, err := f.s.credentials(ctx, turn.snapshot.AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := f.s.context(ctx, f.p, turn, adapter, credentials)
+	if err != nil || len(req.Messages) != 1 {
+		t.Fatal("hidden post in history", err)
+	}
+	m := req.Messages[0]
+	if m.Author == nil || m.Author.MessageID != visible.ID || m.Author.ReplyTo != nil || len(m.Parts) != 1 || m.Parts[0].Text != visible.Body {
+		t.Fatal("hidden reply metadata or image reached the provider")
+	}
+	sources, err := f.s.editImageInputs(ctx, f.p, turn, 10, 23<<20)
+	if err != nil || len(sources) != 0 {
+		t.Fatal("hidden image reached the edit tool", err)
+	}
+	f.accounting(t)
+}
+
 func TestBatchImagesPreferNewestCurrentSources(t *testing.T) {
 	f := fixture(t, 8<<20)
 	ctx := context.Background()

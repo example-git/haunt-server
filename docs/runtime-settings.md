@@ -14,7 +14,7 @@ The following settings apply without a restart:
 | Setting | Effect |
 | --- | --- |
 | Image/video upload sizes | New attachment reservations; actual content is checked |
-| Attachment storage budget | All providers combined, including in-flight reservations; cannot be set below used space |
+| Attachment storage budget | Shared across channel storage providers. A new upload can reclaim the oldest attachments to fit. |
 | Attachment retention | Expiry for new uploads; existing expiry dates remain intact |
 | Channel message budget and retention | Reads honor age immediately; writes and maintenance prune oldest retained channel data |
 | AI channel and aggregate budgets | Include messages, provider replay, tool results, turn state and bounded active reservations; remove the oldest coherent history prefix to 80% of the exceeded budget |
@@ -23,7 +23,16 @@ The following settings apply without a restart:
 | Invitation registration | Allows or closes new registrations; invitations are still required |
 | Temporary session duration | New nonremembered sessions and devices that turn off Remember me; remembered logins remain indefinite |
 
-An upload keeps one policy and one provider from reservation through completion.
+When an upload needs room, Haunt validates and stages it before reclaiming the
+oldest files in the same budget. Channel attachments and encrypted DM images
+have separate budgets. A sender’s DM limit reclaims their own images first.
+Message text stays in history. Active uploads and unclaimed files from the last
+ten minutes are protected. A file larger than the budget still fails. Keep
+temporary disk space available for the two concurrent upload slots.
+The channel storage budget can only be lowered to a value at or above current
+usage.
+
+An upload keeps its selected provider from reservation through completion.
 Provider activation, reservations and budget changes share the existing short
 storage-accounting transaction. No remote network operation runs under that lock.
 The API is the authority for attachment upload sizes. Configure a reverse proxy's
@@ -156,6 +165,12 @@ agent switching, the agent is instructed to switch only on an explicit request f
 current user. The default takes effect after the current reply. A manager can instead
 select **During the current reply** to let the new personality continue immediately.
 Earlier text keeps its original author. Removing the last personality restores the base identity.
+
+The **Hide from AI** checkbox below the AI-channel composer applies to each
+message as it is sent. Checked messages stay in member history with a read-only
+marker beside the author. They do not trigger a response, select a personality,
+or contribute text or attachments to model history or reply references. Existing
+messages retain their original AI visibility. Editing a post preserves its flag.
 
 Haunt sends up to ten contextual images to a vision model per request, within
 the server’s image byte limits. Images attached to pending messages and their

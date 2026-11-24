@@ -50,6 +50,9 @@ func (s *Service) Accept(ctx context.Context, tx pgx.Tx, p identity.Principal, m
 	if err = s.ensureSettings(ctx, tx, ch.ID); err != nil {
 		return err
 	}
+	if m.HiddenFromAI {
+		return s.enforce(ctx, tx, ch.ID)
+	}
 	matches := presetMention.FindAllStringSubmatch(m.Body, -1)
 	if len(matches) > 0 {
 		if ch.Permissions&identity.SwitchAIPreset == 0 {

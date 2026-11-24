@@ -40,6 +40,13 @@ func (s *Service) Usage(ctx context.Context, p identity.Principal, id string) (U
 	return u, err
 }
 func (s *Service) Prune(ctx context.Context, tx pgx.Tx, id string, through int64) error {
+	var visible bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chatxo.messages WHERE conversation_id=$1 AND seq<=$2 AND ai_visible)`, id, through).Scan(&visible); err != nil {
+		return err
+	}
+	if !visible {
+		return nil
+	}
 	if err := s.refreshBatchInputs(ctx, tx, id, through); err != nil {
 		return err
 	}

@@ -420,6 +420,45 @@ func TestAttachmentContentQuotaAndExpiry(t *testing.T) {
 	if counts[201] != 1 || counts[507] != 1 {
 		t.Fatalf("concurrent attachment quota returned %v", counts)
 	}
+	// Complete the pending draft and fill a second slot. A malformed
+	// replacement must keep both files. A valid one replaces only the oldest.
+	var oldest string
+	if err := f.pool.QueryRow(context.Background(), `SELECT id FROM chatxo.attachments WHERE status='ready'`).Scan(&oldest); err != nil {
+		t.Fatal(err)
+	}
+	post := func(id string) chat.Message {
+		t.Helper()
+		var msg chat.Message
+		f.call(t, "POST", "/api/v1/conversations/"+channel.ID+"/messages", f.owner.Token,
+			map[string]any{"body": "keep this caption", "request_id": identity.NewID(), "attachment_ids": []string{id}}, 201, &msg)
+		return msg
+	}
+	caption := post(oldest)
+	features.Chat.Policy.AttachmentMaxBytes = int64(len(payload)) * 2
+	status, newer, err := upload(payload)
+	if err != nil || status != 201 {
+		t.Fatal(status, err)
+	}
+	post(newer.ID)
+	if status, _, err = upload(bytes.Repeat([]byte{'x'}, len(payload))); err != nil || status != 415 {
+		t.Fatal("invalid replacement", status, err)
+	}
+	f.call(t, "GET", "/api/v1/attachments/"+oldest+"/metadata", f.owner.Token, nil, 200, nil)
+	status, replacement, err := upload(payload)
+	if err != nil || status != 201 {
+		t.Fatal("rolling replacement", status, err)
+	}
+	for _, id := range []string{newer.ID, replacement.ID} {
+		f.call(t, "GET", "/api/v1/attachments/"+id+"/metadata", f.owner.Token, nil, 200, nil)
+	}
+	f.call(t, "GET", "/api/v1/attachments/"+oldest+"/metadata", f.owner.Token, nil, 404, nil)
+	f.call(t, "GET", "/api/v1/conversations/"+channel.ID+"/messages/"+caption.ID, f.owner.Token, nil, 200, &message)
+	if message.Body != caption.Body || message.Deleted {
+		t.Fatal("rollover removed message text")
+	}
+	if err = f.pool.QueryRow(context.Background(), `SELECT attachment_bytes FROM chatxo.storage WHERE singleton`).Scan(&used); err != nil || used != int64(len(payload))*2 {
+		t.Fatal("rollover byte accounting", used, err)
+	}
 }
 
 func strconv64(n int64) string { return fmt.Sprintf("%d", n) }

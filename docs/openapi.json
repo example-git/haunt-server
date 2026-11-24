@@ -1329,6 +1329,9 @@
               "string"
             ]
           },
+          "hidden_from_ai": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -2207,6 +2210,10 @@
           "body": {
             "description": "Nonblank body or at least one attachment. UTF-8 bytes are bounded by installation policy (at most 64 KiB).",
             "type": "string"
+          },
+          "hidden_from_ai": {
+            "description": "AI channels only. A hidden message is visible to members and permanently excluded from AI responses and context.",
+            "type": "boolean"
           },
           "reply_to_id": {
             "description": "Message in the same conversation to reference as a reply.",

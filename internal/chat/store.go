@@ -38,6 +38,7 @@ type Message struct {
 	ConversationID string     `json:"conversation_id"`
 	AuthorID       string     `json:"author_id"`
 	AIAuthor       *AIAuthor  `json:"ai_author,omitempty"`
+	HiddenFromAI   bool       `json:"hidden_from_ai,omitempty"`
 	Seq            int64      `json:"seq"`
 	Body           string     `json:"body"`
 	Attachments    []string   `json:"attachment_ids"`
@@ -72,11 +73,11 @@ type Event struct {
 	Data           any    `json:"data"`
 }
 
-const messageColumns = `id,conversation_id,COALESCE(author_id::text,''),seq,body,attachment_ids,created_at,edited_at,deleted,request_id,reply_to_id,mention_user_ids,ai_author`
+const messageColumns = `id,conversation_id,COALESCE(author_id::text,''),seq,body,attachment_ids,created_at,edited_at,deleted,request_id,reply_to_id,mention_user_ids,ai_author,NOT ai_visible`
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
-	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.ReplyToID, &m.MentionUserIDs, &m.AIAuthor)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.ReplyToID, &m.MentionUserIDs, &m.AIAuthor, &m.HiddenFromAI)
 	return m, err
 }
 
@@ -251,6 +252,10 @@ func changeText(ctx context.Context, tx pgx.Tx, delta int64) error {
 func messageBytes(m Message) int64 { b, _ := json.Marshal(m); return int64(len(b) + 64) }
 
 func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request, body, reply string, attachments []string) (Message, error) {
+	return s.CreateWithVisibility(ctx, p, conv, request, body, reply, attachments, false)
+}
+
+func (s *Store) CreateWithVisibility(ctx context.Context, p identity.Principal, conv, request, body, reply string, attachments []string, hiddenFromAI bool) (Message, error) {
 	if err := s.Access(ctx, p, conv, true); err != nil {
 		return Message{}, err
 	}
@@ -265,7 +270,8 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 		Body         string
 		Reply        string
 		Attachments  []string
-	}{conv, body, reply, attachments})
+		HiddenFromAI bool `json:",omitempty"`
+	}{conv, body, reply, attachments, hiddenFromAI})
 	hash := sha256.Sum256(input)
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -285,6 +291,15 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 	}
 	if err := s.validate(body, attachments, admission); err != nil {
 		return Message{}, err
+	}
+	if hiddenFromAI {
+		var aiChannel bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chatxo.channels WHERE id=$1 AND kind='ai')`, conv).Scan(&aiChannel); err != nil {
+			return Message{}, err
+		}
+		if !aiChannel {
+			return Message{}, identity.ErrInvalid
+		}
 	}
 	var previousHash []byte
 	previous, err := scanMessage(tx.QueryRow(ctx, `SELECT `+messageColumns+` FROM chatxo.messages WHERE author_id=$1 AND request_id=$2`, p.User.ID, request))
@@ -323,7 +338,7 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 	if err = s.validateMLS(ctx, tx, p, conv, body); err != nil {
 		return Message{}, err
 	}
-	m := Message{ID: identity.NewID(), ConversationID: conv, AuthorID: p.User.ID, Body: body, Attachments: attachments, RequestID: request}
+	m := Message{ID: identity.NewID(), ConversationID: conv, AuthorID: p.User.ID, Body: body, Attachments: attachments, RequestID: request, HiddenFromAI: hiddenFromAI}
 	if reply != "" {
 		m.ReplyToID = &reply
 	}
@@ -359,7 +374,7 @@ func (s *Store) Create(ctx context.Context, p identity.Principal, conv, request,
 			return Message{}, err
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,author_id,seq,body,attachment_ids,created_at,request_id,request_hash,bytes,reply_to_id,mention_user_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, m.ID, conv, p.User.ID, m.Seq, body, attachments, m.CreatedAt, request, hash[:], messageBytes(m), m.ReplyToID, m.MentionUserIDs)
+	_, err = tx.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,author_id,seq,body,attachment_ids,created_at,request_id,request_hash,bytes,reply_to_id,mention_user_ids,ai_visible) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, m.ID, conv, p.User.ID, m.Seq, body, attachments, m.CreatedAt, request, hash[:], messageBytes(m), m.ReplyToID, m.MentionUserIDs, !hiddenFromAI)
 	if err != nil {
 		return Message{}, err
 	}
@@ -488,7 +503,7 @@ func (s *Store) Edit(ctx context.Context, p identity.Principal, conv, id, body s
 	if err = s.emit(ctx, tx, conv, &m.ID, kind, m); err != nil {
 		return Message{}, err
 	}
-	if s.AI != nil {
+	if s.AI != nil && !m.HiddenFromAI {
 		if err = s.AI.Invalidate(ctx, tx, conv); err != nil {
 			return Message{}, err
 		}
