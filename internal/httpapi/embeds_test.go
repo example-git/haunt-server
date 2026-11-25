@@ -234,5 +234,8 @@ func TestGalleryPagesKeepImagesBeyondOrdinaryLinkLimit(t *testing.T) {
 	if second.NextOffset != nil || len(second.Embeds) != 2 || second.Embeds[1].Index != 4 {
 		t.Fatal(second)
 	}
-	f.call(t, "GET", path+"/image?index=4&gallery=true", f.owner.Token, nil, 200, nil)
+	status, body, err := f.request("GET", path+"/image?index=4&gallery=true", f.owner.Token, nil)
+	if err != nil || status != 200 || string(body) != "fixture-image" {
+		t.Fatalf("fifth image response: status %d, error %v", status, err)
+	}
 }
