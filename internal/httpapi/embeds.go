@@ -16,15 +16,18 @@ import (
 )
 
 type embedsResponse struct {
-	Embeds []embeds.Preview `json:"embeds"`
+	NextOffset *int             `json:"next_offset,omitempty"`
+	Embeds     []embeds.Preview `json:"embeds"`
 }
 type embedsQuery struct {
+	Offset      *int `query:"offset" minimum:"0"`
 	ClientPosts bool `query:"client_posts"`
 }
 type embedImageQuery struct {
-	Index  int  `query:"index" minimum:"0" maximum:"2" required:"true"`
-	Asset  *int `query:"asset" minimum:"0" maximum:"3"`
-	Avatar bool `query:"avatar"`
+	Gallery bool `query:"gallery"`
+	Index   int  `query:"index" minimum:"0" required:"true"`
+	Asset   *int `query:"asset" minimum:"0"`
+	Avatar  bool `query:"avatar"`
 }
 
 func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
@@ -41,6 +44,22 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 			return
 		}
 		links := embeds.Links(message.Body)
+		offset := 0
+		var next *int
+		if raw := r.URL.Query().Get("offset"); raw != "" {
+			offset, err = strconv.Atoi(raw)
+			if err != nil || offset < 0 {
+				a.fail(w, r, identity.ErrInvalid)
+				return
+			}
+			links = embeds.AllLinks(message.Body)
+			offset = min(offset, len(links))
+			end := offset + min(len(links)-offset, embeds.MaxLinks)
+			if end < len(links) {
+				next = &end
+			}
+			links = links[offset:end]
+		}
 		results := make([]embeds.Preview, len(links))
 		failures := make([]error, len(links))
 		var wg sync.WaitGroup
@@ -52,14 +71,14 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 			go func(index int, link string) {
 				defer wg.Done()
 				results[index], failures[index] = f.Previews.Page(ctx, link)
-				results[index].Index = index
+				results[index].Index = offset + index
 			}(index, link)
 		}
 		wg.Wait()
 		if !f.sameEmbedMessage(w, r, a, message) {
 			return
 		}
-		response := embedsResponse{Embeds: []embeds.Preview{}}
+		response := embedsResponse{NextOffset: next, Embeds: []embeds.Preview{}}
 		for i, result := range results {
 			if errors.Is(failures[i], embeds.ErrBusy) {
 				w.Header().Set("Retry-After", "1")
@@ -67,7 +86,7 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 				return
 			}
 			if failures[i] != nil {
-				result = embeds.Preview{Index: i, URL: links[i], Kind: "link", Status: "unavailable"}
+				result = embeds.Preview{Index: offset + i, URL: links[i], Kind: "link", Status: "unavailable"}
 			}
 			if result.Status == "unavailable" || result.Title != "" || result.Description != "" || result.Image || result.YouTubeID != "" || result.Player != "" || len(result.Media) > 0 || result.Author != "" {
 				response.Embeds = append(response.Embeds, result)
@@ -81,7 +100,7 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 			return
 		}
 		index, err := strconv.Atoi(r.URL.Query().Get("index"))
-		if err != nil || index < 0 || index >= embeds.MaxLinks {
+		if err != nil || index < 0 || (index >= embeds.MaxLinks && r.URL.Query().Get("gallery") != "true") {
 			a.fail(w, r, identity.ErrInvalid)
 			return
 		}
@@ -93,6 +112,9 @@ func (f *Features) embedRoutes(a *api, mux routeRegistrar) {
 			return
 		}
 		links := embeds.Links(message.Body)
+		if r.URL.Query().Get("gallery") == "true" {
+			links = embeds.AllLinks(message.Body)
+		}
 		if index >= len(links) {
 			a.fail(w, r, identity.ErrNotFound)
 			return

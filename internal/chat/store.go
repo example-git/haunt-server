@@ -33,21 +33,30 @@ type Conversation struct {
 	Kind    string   `json:"kind"`
 	Members []string `json:"members,omitempty"`
 }
+type Consultation struct {
+	CallID   string `json:"call_id"`
+	PresetID string `json:"preset_id,omitempty"`
+	Question string `json:"question"`
+	Answer   string `json:"answer,omitempty"`
+	Status   string `json:"status"`
+}
 type Message struct {
-	ID             string     `json:"id"`
-	ConversationID string     `json:"conversation_id"`
-	AuthorID       string     `json:"author_id"`
-	AIAuthor       *AIAuthor  `json:"ai_author,omitempty"`
-	HiddenFromAI   bool       `json:"hidden_from_ai,omitempty"`
-	Seq            int64      `json:"seq"`
-	Body           string     `json:"body"`
-	Attachments    []string   `json:"attachment_ids"`
-	CreatedAt      time.Time  `json:"created_at"`
-	EditedAt       *time.Time `json:"edited_at,omitempty"`
-	Deleted        bool       `json:"deleted"`
-	RequestID      string     `json:"request_id"`
-	ReplyToID      *string    `json:"reply_to_id,omitempty"`
-	MentionUserIDs []string   `json:"mention_user_ids,omitempty"`
+	AIStreaming    bool           `json:"ai_streaming,omitempty"`
+	Consultations  []Consultation `json:"consultations,omitempty"`
+	ID             string         `json:"id"`
+	ConversationID string         `json:"conversation_id"`
+	AuthorID       string         `json:"author_id"`
+	AIAuthor       *AIAuthor      `json:"ai_author,omitempty"`
+	HiddenFromAI   bool           `json:"hidden_from_ai,omitempty"`
+	Seq            int64          `json:"seq"`
+	Body           string         `json:"body"`
+	Attachments    []string       `json:"attachment_ids"`
+	CreatedAt      time.Time      `json:"created_at"`
+	EditedAt       *time.Time     `json:"edited_at,omitempty"`
+	Deleted        bool           `json:"deleted"`
+	RequestID      string         `json:"request_id"`
+	ReplyToID      *string        `json:"reply_to_id,omitempty"`
+	MentionUserIDs []string       `json:"mention_user_ids,omitempty"`
 }
 type History struct {
 	Messages      []Message `json:"messages"`
@@ -73,11 +82,12 @@ type Event struct {
 	Data           any    `json:"data"`
 }
 
-const messageColumns = `id,conversation_id,COALESCE(author_id::text,''),seq,body,attachment_ids,created_at,edited_at,deleted,request_id,reply_to_id,mention_user_ids,ai_author,NOT ai_visible`
+const messageColumns = `id,conversation_id,COALESCE(author_id::text,''),seq,body,attachment_ids,created_at,edited_at,deleted,request_id,reply_to_id,mention_user_ids,ai_author,NOT ai_visible,ai_streaming,CASE WHEN ai_author IS NOT NULL AND NOT deleted THEN
+ (SELECT jsonb_agg(jsonb_build_object('call_id',c.call_id,'preset_id',c.preset_id,'question',c.question,'answer',c.answer,'status',c.status) ORDER BY c.position) FROM chatxo.message_consultations c WHERE c.message_id=messages.id) END`
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
-	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.ReplyToID, &m.MentionUserIDs, &m.AIAuthor, &m.HiddenFromAI)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.Seq, &m.Body, &m.Attachments, &m.CreatedAt, &m.EditedAt, &m.Deleted, &m.RequestID, &m.ReplyToID, &m.MentionUserIDs, &m.AIAuthor, &m.HiddenFromAI, &m.AIStreaming, &m.Consultations)
 	return m, err
 }
 
@@ -467,6 +477,13 @@ func (s *Store) Edit(ctx context.Context, p identity.Principal, conv, id, body s
 		body = ""
 		m.Attachments = []string{}
 		m.Deleted = true
+		if len(m.Consultations) > 0 {
+			if _, err = tx.Exec(ctx, `DELETE FROM chatxo.message_consultations WHERE message_id=$1`, m.ID); err != nil {
+				return Message{}, err
+			}
+			m.Consultations = nil
+		}
+		m.AIStreaming = false
 		kind = "message.deleted"
 	} else if err := s.validate(body, m.Attachments, admission); err != nil {
 		return Message{}, err
@@ -489,7 +506,7 @@ func (s *Store) Edit(ctx context.Context, p identity.Principal, conv, id, body s
 	if messageBytes(m) > admission.TextMaxBytes*3/4 {
 		return Message{}, identity.ErrInvalid
 	}
-	if _, err = tx.Exec(ctx, `UPDATE chatxo.messages SET body=$2,attachment_ids=$3,deleted=$4,edited_at=$5,bytes=$6,mention_user_ids=$7 WHERE id=$1`, m.ID, m.Body, m.Attachments, m.Deleted, m.EditedAt, messageBytes(m), m.MentionUserIDs); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE chatxo.messages SET body=$2,attachment_ids=$3,deleted=$4,edited_at=$5,bytes=$6,mention_user_ids=$7,ai_streaming=CASE WHEN $4 THEN false ELSE ai_streaming END WHERE id=$1`, m.ID, m.Body, m.Attachments, m.Deleted, m.EditedAt, messageBytes(m), m.MentionUserIDs); err != nil {
 		return Message{}, err
 	}
 	if err = changeText(ctx, tx, messageBytes(m)-oldBytes); err != nil {

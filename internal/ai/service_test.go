@@ -1275,3 +1275,85 @@ func TestSwitchRequiresEnabledAtRequestAndSuccessfulCompletion(t *testing.T) {
 	}
 	f.accounting(t)
 }
+
+func TestConsultationSharesContextAndKeepsOneReply(t *testing.T) {
+	ctx := context.Background()
+	f := fixture(t, 8<<20)
+	caller, err := f.s.SavePreset(ctx, f.p, f.channel.ID, "", PresetInput{Name: "Writer", Instructions: "Writer only instruction"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := f.s.SavePreset(ctx, f.p, f.channel.ID, "", PresetInput{Name: "Reviewer", Instructions: "Reviewer only instruction"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := f.s.Settings(ctx, f.p, f.channel.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	settings.AllowConsultations = &enabled
+	settings.Instructions = "Shared instruction"
+	if _, err = f.s.SaveSettings(ctx, f.p, f.channel.ID, settings.SettingsInput); err != nil {
+		t.Fatal(err)
+	}
+	f.send(t, "<@ai:"+caller.ID+"> Please get a second opinion.")
+	turn := f.claim(t)
+	call := provider.ToolCall{ID: "consult-1", Name: "consult_personality", Arguments: json.RawMessage(`{"preset_id":"` + target.ID + `","question":"What would you change?"}`)}
+	n := 0
+	f.adapter.generate = func(_ context.Context, r provider.Request, _ func(provider.Event) error) (provider.Response, error) {
+		n++
+		if err := provider.Validate(r); err != nil {
+			t.Fatal(err)
+		}
+		switch n {
+		case 1:
+			return provider.Response{Calls: []provider.ToolCall{call}}, nil
+		case 2:
+			if len(r.Tools) != 0 || len(r.Replay) != 0 || len(r.ToolResults) != 0 || !strings.Contains(r.Instructions, target.Instructions) || !strings.Contains(r.Instructions, settings.Instructions) || strings.Contains(r.Instructions, caller.Instructions) || len(r.ToolMedia) == 0 || !strings.Contains(r.ToolMedia[0].Text, "Question from Writer") || len(r.Messages) == 0 || r.Messages[len(r.Messages)-1].Author.UserID != f.p.User.ID {
+				t.Fatal("invalid consultation context")
+			}
+			history, err := f.ch.History(ctx, f.p, f.channel.ID, 0, 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(history.Messages) != 2 || !history.Messages[1].AIStreaming || len(history.Messages[1].Consultations) != 1 || history.Messages[1].Consultations[0].Status != "waiting" {
+				t.Fatal("pending consultation missing from reply", history.Messages)
+			}
+			return provider.Response{Text: "Check the dates."}, nil
+		case 3:
+			return provider.Response{Calls: []provider.ToolCall{call}}, nil
+		case 4:
+			if len(r.ToolResults) != 1 || !strings.Contains(r.ToolResults[0].Content, "Check the dates.") {
+				t.Fatal("missing consultant answer")
+			}
+			return provider.Response{Text: "Here is the answer."}, nil
+		default:
+			t.Fatal("unbounded consultation")
+			return provider.Response{}, nil
+		}
+	}
+	f.s.execute(ctx, turn)
+	if n != 4 {
+		t.Fatal("wrong number of provider calls", n)
+	}
+	if err = f.s.DeletePreset(ctx, f.p, f.channel.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	history, err := f.ch.History(ctx, f.p, f.channel.ID, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Messages) != 2 {
+		t.Fatal("consultation created extra messages", len(history.Messages))
+	}
+	reply := history.Messages[1]
+	if reply.AIStreaming || reply.AIAuthor.ID != caller.ID || len(reply.Consultations) != 1 || reply.Body != "Here is the answer." {
+		t.Fatal("bad final reply", reply)
+	}
+	c := reply.Consultations[0]
+	if c.PresetID != "" || c.Answer != "Check the dates." || c.Status != "answered" || c.CallID != call.ID {
+		t.Fatal("bad retained consultation", c)
+	}
+	f.accounting(t)
+}

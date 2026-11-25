@@ -16,6 +16,12 @@ var tiktokShortPath = regexp.MustCompile(`^/(?:t/)?[a-zA-Z0-9]+/?$`)
 // Links extracts a small, stable list. Backtick code and <angle-wrapped links>
 // do not generate previews; punctuation outside a URL is not fetched.
 func Links(body string) []string {
+	return extractLinks(body, MaxLinks)
+}
+
+// AllLinks retains the original index of each eligible URL for paged gallery discovery.
+func AllLinks(body string) []string { return extractLinks(body, 0) }
+func extractLinks(body string, limit int) []string {
 	body = hideCode(body)
 	result := []string{}
 	seen := map[string]bool{}
@@ -34,7 +40,7 @@ func Links(body string) []string {
 		}
 		seen[key] = true
 		result = append(result, key)
-		if len(result) == MaxLinks {
+		if len(result) == limit {
 			break
 		}
 	}

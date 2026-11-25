@@ -50,6 +50,19 @@ func (s *Service) Prune(ctx context.Context, tx pgx.Tx, id string, through int64
 	if err := s.refreshBatchInputs(ctx, tx, id, through); err != nil {
 		return err
 	}
+	rows, err := tx.Query(ctx, `SELECT id FROM chatxo.ai_turns WHERE channel_id=$1 AND boundary_seq<=$2 AND status IN ('running','waiting')`, id, through)
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, turnID := range ids {
+		if err = s.finalizeMessages(ctx, tx, Turn{ChannelID: id, ID: turnID}); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM chatxo.ai_turns WHERE channel_id=$1 AND boundary_seq<=$2`, id, through); err != nil {
 		return err
 	}

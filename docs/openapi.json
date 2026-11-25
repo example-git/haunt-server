@@ -216,6 +216,12 @@
           "allow_agent_switch": {
             "type": "boolean"
           },
+          "allow_consultations": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "avatar_url": {
             "type": "string"
           },
@@ -231,6 +237,12 @@
           "max_bytes": {
             "format": "int64",
             "type": "integer"
+          },
+          "max_consultations": {
+            "type": [
+              "null",
+              "integer"
+            ]
           },
           "model": {
             "type": "string"
@@ -280,6 +292,12 @@
           "allow_agent_switch": {
             "type": "boolean"
           },
+          "allow_consultations": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "avatar_url": {
             "type": "string"
           },
@@ -289,6 +307,12 @@
           "max_bytes": {
             "format": "int64",
             "type": "integer"
+          },
+          "max_consultations": {
+            "type": [
+              "null",
+              "integer"
+            ]
           },
           "model": {
             "type": "string"
@@ -992,6 +1016,31 @@
         ],
         "type": "object"
       },
+      "ChatConsultation": {
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "call_id": {
+            "type": "string"
+          },
+          "preset_id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "question",
+          "status"
+        ],
+        "type": "object"
+      },
       "ChatConversation": {
         "properties": {
           "id": {
@@ -1297,6 +1346,9 @@
           "ai_author": {
             "$ref": "#/components/schemas/ChatAIAuthor"
           },
+          "ai_streaming": {
+            "type": "boolean"
+          },
           "attachment_ids": {
             "items": {
               "type": "string"
@@ -1311,6 +1363,12 @@
           },
           "body": {
             "type": "string"
+          },
+          "consultations": {
+            "items": {
+              "$ref": "#/components/schemas/ChatConsultation"
+            },
+            "type": "array"
           },
           "conversation_id": {
             "type": "string"
@@ -2325,6 +2383,12 @@
             "type": [
               "array",
               "null"
+            ]
+          },
+          "next_offset": {
+            "type": [
+              "null",
+              "integer"
             ]
           }
         },
@@ -9231,6 +9295,17 @@
           },
           {
             "in": "query",
+            "name": "offset",
+            "schema": {
+              "minimum": 0,
+              "type": [
+                "null",
+                "integer"
+              ]
+            }
+          },
+          {
+            "in": "query",
             "name": "client_posts",
             "schema": {
               "type": "boolean"
@@ -9264,7 +9339,7 @@
             "session": []
           }
         ],
-        "summary": "Fetch up to three cached public link previews for a visible retained message",
+        "summary": "Read a page of public link previews for a visible retained message, with optional continuation for image galleries",
         "tags": [
           "conversations"
         ]
@@ -9295,10 +9370,16 @@
           },
           {
             "in": "query",
+            "name": "gallery",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "index",
             "required": true,
             "schema": {
-              "maximum": 2,
               "minimum": 0,
               "type": "integer"
             }
@@ -9307,7 +9388,6 @@
             "in": "query",
             "name": "asset",
             "schema": {
-              "maximum": 3,
               "minimum": 0,
               "type": [
                 "null",
@@ -9481,7 +9561,6 @@
             "name": "index",
             "required": true,
             "schema": {
-              "maximum": 2,
               "minimum": 0,
               "type": "integer"
             }
@@ -9491,7 +9570,6 @@
             "name": "asset",
             "required": true,
             "schema": {
-              "maximum": 3,
               "minimum": 0,
               "type": "integer"
             }

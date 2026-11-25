@@ -217,3 +217,22 @@ func TestEmbedVideoTicketRangesAndRevocation(t *testing.T) {
 	f.call(t, "PUT", "/api/v1/conversations/"+c.ID+"/messages/"+m.ID, f.owner.Token, map[string]any{"body": "changed"}, 200, nil)
 	f.call(t, "GET", path+"/video?ticket="+ticket.Ticket, "", nil, 409, nil)
 }
+
+func TestGalleryPagesKeepImagesBeyondOrdinaryLinkLimit(t *testing.T) {
+	f, features := featureFixture(t, 256_000_000)
+	features.Previews.Close()
+	features.Previews = &previewFixture{}
+	channel := textChannel(t, f)
+	m := sendMessage(t, f, f.owner.Token, channel.ID, "https://gallery.example/a https://gallery.example/b https://gallery.example/c https://gallery.example/d.png https://gallery.example/e.gif")
+	path := "/api/v1/conversations/" + channel.ID + "/messages/" + m.ID + "/embeds"
+	var first, second embedsResponse
+	f.call(t, "GET", path+"?offset=0", f.owner.Token, nil, 200, &first)
+	if first.NextOffset == nil || *first.NextOffset != 3 || len(first.Embeds) != 3 {
+		t.Fatal(first)
+	}
+	f.call(t, "GET", path+"?offset=3", f.owner.Token, nil, 200, &second)
+	if second.NextOffset != nil || len(second.Embeds) != 2 || second.Embeds[1].Index != 4 {
+		t.Fatal(second)
+	}
+	f.call(t, "GET", path+"/image?index=4&gallery=true", f.owner.Token, nil, 200, nil)
+}

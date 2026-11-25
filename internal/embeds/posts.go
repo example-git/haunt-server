@@ -47,7 +47,7 @@ func mediaURL(raw string) string {
 }
 func (p *Preview) addMedia(kind, raw, poster, alt string, width, height int) {
 	raw = mediaURL(raw)
-	if raw == "" || len(p.Media) >= 4 {
+	if raw == "" {
 		return
 	}
 	for _, item := range p.Media {

@@ -238,6 +238,11 @@ func (s *Service) emitTurn(ctx context.Context, tx pgx.Tx, id string) error {
 	if err != nil {
 		return err
 	}
+	if t.Status != "running" && t.Status != "queued" && t.Status != "waiting" {
+		if err = s.finalizeMessages(ctx, tx, t); err != nil {
+			return err
+		}
+	}
 	if err = s.chat.Emit(ctx, tx, t.ChannelID, &t.TriggerMessageID, "ai.turn.updated", t); err != nil {
 		return err
 	}
@@ -495,6 +500,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 	priorTextBytes := 0
 	last := time.Time{}
 	var memory runMemory
+	consultations := consultationRun{results: map[string]provider.ToolResult{}, targets: map[string]bool{}}
 	for {
 		if _, err = s.checkExecution(ctx, t); err != nil {
 			s.fail(parent, t, err)
@@ -502,7 +508,8 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 		}
 		activity.set("provider", "", true)
 		callStart := len(text)
-		response, e := a.Generate(ctx, t.profilePictures.visualContext(req), func(event provider.Event) error {
+		input := t.profilePictures.visualContext(req)
+		response, e := a.Generate(ctx, input, func(event provider.Event) error {
 			switch event.Type {
 			case "submitted", "reasoning", "tool_arguments", "tool_call":
 				activity.set("provider", "", true)
@@ -579,7 +586,13 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 				return
 			}
 			previousSpeaker := t.snapshot.Author.ID
-			result, e := s.dispatchTool(ctx, p, &t, call, activity)
+			var result provider.ToolResult
+			var e error
+			if call.Name == "consult_personality" {
+				result, e = s.consult(ctx, t, call, a, input, &consultations, memory.notes, req.ToolResults, text, activity)
+			} else {
+				result, e = s.dispatchTool(ctx, p, &t, call, activity)
+			}
 			if ctx.Err() != nil {
 				s.fail(parent, t, context.Cause(ctx))
 				return
@@ -611,6 +624,9 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 }
 
 func (s *Service) checkpoint(ctx context.Context, t claimedTurn, text string) error {
+	return s.checkpointCard(ctx, t, text, nil)
+}
+func (s *Service) checkpointCard(ctx context.Context, t claimedTurn, text string, card *chat.Consultation) error {
 	if _, err := s.checkExecution(ctx, t); err != nil {
 		return err
 	}
@@ -626,8 +642,8 @@ func (s *Service) checkpoint(ctx context.Context, t claimedTurn, text string) er
 		if err := tx.QueryRow(ctx, channelUsageSQL, t.ChannelID).Scan(&before); err != nil {
 			return err
 		}
-		if text != "" {
-			message, err := s.chat.WriteAI(ctx, tx, t.ChannelID, t.messageRequest, t.responseRequest, text, t.snapshot.Author)
+		if text != "" || card != nil {
+			message, err := s.chat.WriteAIReply(ctx, tx, t.ChannelID, t.messageRequest, t.responseRequest, text, t.snapshot.Author, card)
 			if err != nil {
 				return err
 			}
@@ -675,7 +691,15 @@ func (s *Service) terminalAllowance(ctx context.Context, tx pgx.Tx, id string) (
 	}
 	var rowGrowth int64
 	err = tx.QueryRow(ctx, `SELECT octet_length(((to_jsonb(t)-'bytes') || jsonb_build_object('status',$2::text,'error_code',$3::text,'revision',$4::bigint,'updated_at',$5::text,'retry_at',$5::text,'reservation_bytes',0))::text)-octet_length((to_jsonb(t)-'bytes')::text) FROM chatxo.ai_turns t WHERE id=$1`, id, turn.Status, turn.ErrorCode, turn.Revision, "9999-12-31T23:59:59.999999999+00:00").Scan(&rowGrowth)
-	return int64(len(payload)+64) + max(0, rowGrowth), err
+	if err != nil {
+		return 0, err
+	}
+	// A reply with a creation event only needs space for its first final update.
+	// Streaming updates supersede one another; reserve only the additional bytes.
+	var finalGrowth int64
+	err = tx.QueryRow(ctx, `SELECT COALESCE(sum(greatest(0, m.bytes+256-COALESCE((SELECT max(e.bytes) FROM chatxo.events e WHERE e.message_id=m.id AND convert_from(e.payload,'UTF8')::jsonb->>'type'='message.updated'),0))),0)
+ FROM chatxo.messages m JOIN chatxo.ai_turns t ON t.channel_id=m.conversation_id AND t.response_request_id=COALESCE(m.ai_response_request_id,m.request_id) WHERE t.id=$1 AND m.ai_streaming`, id).Scan(&finalGrowth)
+	return int64(len(payload)+64) + max(0, rowGrowth) + finalGrowth, err
 }
 
 type pendingFinish struct {

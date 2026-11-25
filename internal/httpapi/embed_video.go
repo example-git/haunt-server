@@ -17,8 +17,8 @@ import (
 )
 
 type embedVideoQuery struct {
-	Index int `query:"index" minimum:"0" maximum:"2" required:"true"`
-	Asset int `query:"asset" minimum:"0" maximum:"3" required:"true"`
+	Index int `query:"index" minimum:"0" required:"true"`
+	Asset int `query:"asset" minimum:"0" required:"true"`
 }
 type embedTicketQuery struct {
 	Ticket string `query:"ticket" required:"true"`
@@ -48,7 +48,7 @@ func (f *Features) embedVideoRoutes(a *api, mux routeRegistrar) {
 		}
 		index, e1 := strconv.Atoi(r.URL.Query().Get("index"))
 		asset, e2 := strconv.Atoi(r.URL.Query().Get("asset"))
-		if e1 != nil || e2 != nil || index < 0 || index >= embeds.MaxLinks || asset < 0 || asset >= 4 {
+		if e1 != nil || e2 != nil || index < 0 || asset < 0 {
 			a.fail(w, r, identity.ErrInvalid)
 			return
 		}
@@ -57,7 +57,7 @@ func (f *Features) embedVideoRoutes(a *api, mux routeRegistrar) {
 			a.fail(w, r, err)
 			return
 		}
-		links := embeds.Links(message.Body)
+		links := embeds.AllLinks(message.Body)
 		if index >= len(links) {
 			a.fail(w, r, identity.ErrNotFound)
 			return

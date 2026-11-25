@@ -300,7 +300,7 @@ func endpointContracts() map[string]endpointContract {
 	add("POST /api/v1/conversations/{id}/messages", "createMessage", "Commit a message with retry deduplication", CreateMessageRequest{}, chat.Message{}, 201)
 	add("PUT /api/v1/conversations/{id}/messages/{message}", "editMessage", "Edit an authored message", EditMessageRequest{}, chat.Message{}, 200)
 	add("DELETE /api/v1/conversations/{id}/messages/{message}", "deleteMessage", "Tombstone an authored message", nil, chat.Message{}, 200)
-	add("GET /api/v1/conversations/{id}/messages/{message}/embeds", "getMessageEmbeds", "Fetch up to three cached public link previews for a visible retained message", nil, embedsResponse{}, 200)
+	add("GET /api/v1/conversations/{id}/messages/{message}/embeds", "getMessageEmbeds", "Read a page of public link previews for a visible retained message, with optional continuation for image galleries", nil, embedsResponse{}, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/image", "getEmbedImage", "Download a bounded preview image after rechecking message access", nil, nil, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/video-ticket", "getEmbedVideoTicket", "Create a media-only playback ticket valid for 30 minutes; message and session access are rechecked on every range", nil, embedTicketResponse{}, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/video", "getEmbedVideo", "Stream a bounded video byte range using a media-only ticket", nil, nil, 206)
