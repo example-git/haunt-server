@@ -37,7 +37,7 @@ func ParseURL(raw string) (*url.URL, error) {
 }
 
 var blocked = func() []netip.Prefix {
-	values := []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "168.63.129.16/32", "2001::/23", "2001:db8::/32", "3fff::/20", "2002::/16", "64:ff9b::/96", "64:ff9b:1::/48"}
+	values := []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "168.63.129.16/32", "2001::/23", "2001:db8::/32", "3fff::/20", "2002::/16", "64:ff9b::/96", "64:ff9b:1::/48"}
 	out := []netip.Prefix{}
 	for _, s := range values {
 		out = append(out, netip.MustParsePrefix(s))
@@ -121,7 +121,7 @@ func DialPublic(ctx context.Context, network, address string, lookup func(contex
 	}
 	for _, ip := range ips {
 		if !PublicIP(ip) {
-			return nil, ErrUnavailable
+			return nil, errors.Join(ErrUnavailable, errors.New("non-public destination rejected"))
 		}
 	}
 	var last error

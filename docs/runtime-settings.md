@@ -154,7 +154,27 @@ and provider replay belong to that response.
 
 Search uses Brave and DuckDuckGo through the server’s bundled private SearXNG runtime. Operators can set
 `HAUNT_DIFFBOT_KEY` for a fallback search when upstream engines fail.
-`read_url` turns public pages into Markdown without executing JavaScript.
+`read_url` returns public pages as Markdown, JSON or text. Haunt can send JPEG,
+PNG and static WebP images to vision models and sample GIFs on their original
+timeline. Image results identify the requested and final URLs, dimensions and
+frame timestamps. HTML includes image links for selective thumbnail inspection.
+Visual inputs last through the next provider call and its retries. An immutable
+image download can be reused in the same channel for up to five minutes.
+
+Each image download is limited to 8 MiB and 12 million decoded pixels. GIFs
+allow up to 300 frames, five minutes and 60 million canvas pixels across frames.
+The decoder has a 12-second deadline. The longest output edge is 1,536 pixels
+for stills and 768 for each of up to six GIF samples. `max_frames` can reduce
+that count for a request. The existing ten-image provider budget still applies.
+Animated WebP, animated PNG and video return an unsupported-format diagnostic.
+
+Operators can tighten limits with the JSON setting `HAUNT_AI_READER_LIMITS`.
+For example, `{"download_bytes":4194304,"samples":3,"cache_seconds":0}` limits
+downloads to 4 MiB and disables the channel cache. Other fields are `max_side`,
+`max_pixels`, `gif_duration_ms`, `gif_frames`, `gif_canvas_pixels`, `sampled_side`,
+`still_side`, `redirects`, `fetch_seconds`, `decode_seconds` and `host_interval_ms`.
+Defaults allow three redirects, 60 seconds per fetch, and one request per host
+every 250 milliseconds; servers can increase the interval to five seconds.
 The reader tries a direct connection first and can use cached public proxy lists
 for a failed route. An unavailable page returns an error for that tool call.
 

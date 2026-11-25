@@ -122,7 +122,7 @@ func (pictures profilePictures) references(ids []string) ([]provider.Part, error
 // Keep the current user input, then the most recently requested profile
 // pictures, then older channel images. Preserve the canonical input for future rounds.
 func (pictures profilePictures) visualContext(req provider.Request) provider.Request {
-	if !req.SupportsVision || len(pictures) == 0 || len(req.Messages) == 0 {
+	if !req.SupportsVision || (len(pictures) == 0 && len(req.ToolMedia) == 0) || len(req.Messages) == 0 {
 		return req
 	}
 	remainingCount, remainingBytes := maxContextImages, 23<<20
@@ -131,6 +131,12 @@ func (pictures profilePictures) visualContext(req provider.Request) provider.Req
 		if p.Type == "image" {
 			remainingCount--
 			remainingBytes -= len(p.Data)
+		}
+	}
+	for _, part := range req.ToolMedia {
+		if part.Type == "image" {
+			remainingCount--
+			remainingBytes -= len(part.Data)
 		}
 	}
 	for i := len(pictures) - 1; i >= 0; i-- {
@@ -162,4 +168,33 @@ func (pictures profilePictures) visualContext(req provider.Request) provider.Req
 		})
 	}
 	return req
+}
+
+// URL pixels accompany the next provider request, including retries of that request.
+// Keep the current user attachments and every frame claimed by an accepted result together.
+func acceptToolMedia(req *provider.Request, call provider.ToolCall, result provider.ToolResult) provider.ToolResult {
+	if !req.SupportsVision {
+		return toolFailure(call, "The selected model cannot inspect images. No visual content was supplied.")
+	}
+	count, size := 0, 0
+	measure := func(parts []provider.Part) {
+		for _, p := range parts {
+			if p.Type == "image" {
+				count++
+				size += len(p.Data)
+			}
+		}
+	}
+	if n := len(req.Messages); n > 0 {
+		measure(req.Messages[n-1].Parts)
+	}
+	measure(req.ToolMedia)
+	measure(result.Media)
+	if count > maxContextImages || size > 23<<20 {
+		return toolFailure(call, "The image budget for this request is full. No frames from this call were supplied. Try fewer images or use max_frames.")
+	}
+	req.ToolMedia = append(req.ToolMedia, provider.Part{Type: "text", Text: "Visual input for " + call.Name + " tool call " + call.ID + "."})
+	req.ToolMedia = append(req.ToolMedia, result.Media...)
+	result.Media = nil
+	return result
 }

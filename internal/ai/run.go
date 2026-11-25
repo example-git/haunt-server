@@ -143,7 +143,7 @@ func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *cla
 		}
 		return s.requestSwitch(ctx, t, args.PresetID, call)
 	default:
-		return s.tools.Execute(ctx, call)
+		return s.tools.Execute(tools.WithChannel(ctx, t.ChannelID), call)
 	}
 }
 

@@ -3,6 +3,7 @@ package ai
 import (
 	"errors"
 	"github.com/example-git/haunt-server/internal/chat"
+	"github.com/example-git/haunt-server/internal/config"
 	"time"
 )
 
@@ -14,6 +15,7 @@ const DefaultChannelMaxBytes int64 = 64 << 20
 const DefaultGlobalMaxBytes int64 = 128 << 20
 
 type Options struct {
+	URLReader       config.URLReaderLimits
 	DiffbotKey      string `json:"-"`
 	InstanceID      string
 	DataDir         string

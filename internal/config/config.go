@@ -26,6 +26,7 @@ type Policy struct {
 }
 
 type Config struct {
+	URLReader               URLReaderLimits
 	DiffbotKey              string `json:"-"`
 	InstanceID              string
 	Name                    string
@@ -92,6 +93,9 @@ func LoadValues(values map[string]string) (Config, error) {
 	var c Config
 	c.DiffbotKey = strings.TrimSpace(e.get("HAUNT_DIFFBOT_KEY"))
 	var err error
+	if c.URLReader, err = ParseURLReaderLimits(e.get("HAUNT_AI_READER_LIMITS")); err != nil {
+		return c, err
+	}
 	for _, item := range []struct {
 		key string
 		dst *string

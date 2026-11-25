@@ -571,6 +571,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 		}
 		t.hadToolCall = true
 		req.ToolResults = nil
+		req.ToolMedia = nil
 		speakerChanged := false
 		for _, call := range response.Calls {
 			if _, err = s.checkExecution(ctx, t); err != nil {
@@ -593,6 +594,9 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 				text = ""
 				t.messageRequest = identity.NewID()
 				last = time.Time{}
+			}
+			if len(result.Media) > 0 {
+				result = acceptToolMedia(&req, call, result)
 			}
 			req.ToolResults = append(req.ToolResults, result)
 		}

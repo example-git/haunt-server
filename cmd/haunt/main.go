@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/example-git/haunt-server/internal/ai/tools"
 	"github.com/example-git/haunt-server/internal/config"
 	"github.com/example-git/haunt-server/internal/httpapi"
 	"github.com/example-git/haunt-server/internal/identity"
@@ -26,6 +27,13 @@ var version = "0.1.0"
 var passwordFile string
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--decode-url-image" {
+		if err := tools.DecodeURLImage(os.Args[2], os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	showVersion := flag.Bool("version", false, "print version")
 	flag.StringVar(&passwordFile, "owner-password-file", "", "reset owner password from this host-local file and exit")
 	flag.Parse()

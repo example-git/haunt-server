@@ -124,6 +124,7 @@ type ToolCall struct {
 	Signature string          `json:"signature,omitempty"`
 }
 type ToolResult struct {
+	Media   []Part `json:"-"`
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Content string `json:"content"`

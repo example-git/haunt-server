@@ -44,7 +44,7 @@ func New(ctx context.Context, pool postgres.Pool, ids *identity.Service, ch *cha
 	if o.ChannelMaxBytes < 4096 || o.GlobalMaxBytes < 4096 {
 		return nil, errors.New("AI storage budgets must be at least 4096 bytes")
 	}
-	s := &Service{pool: pool, ids: ids, chat: ch, attachments: att, options: o, adapters: adapters, tools: aitools.New(), accounts: map[string]*sync.Mutex{}, running: map[string]context.CancelFunc{}, leases: map[string]string{}}
+	s := &Service{pool: pool, ids: ids, chat: ch, attachments: att, options: o, adapters: adapters, tools: aitools.NewWithLimits(o.URLReader), accounts: map[string]*sync.Mutex{}, running: map[string]context.CancelFunc{}, leases: map[string]string{}}
 	var err error
 	s.aead, err = s.loadKey(ctx, o.DataDir)
 	if err != nil {

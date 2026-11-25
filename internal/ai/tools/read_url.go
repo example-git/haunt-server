@@ -2,9 +2,11 @@ package tools
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/example-git/haunt-server/internal/ai/provider"
 	"io"
 	"mime"
 	"net"
@@ -25,19 +27,31 @@ const maxMarkdownBytes = 4 << 20
 const browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 
 type readParams struct {
-	URL      string `json:"url"`
-	Offset   int    `json:"offset"`
-	MaxChars *int   `json:"max_chars"`
+	SourceURL string `json:"source_url"`
+	MediaRole string `json:"media_role"`
+	MaxFrames *int   `json:"max_frames"`
+	URL       string `json:"url"`
+	Offset    int    `json:"offset"`
+	MaxChars  *int   `json:"max_chars"`
 }
 type page struct {
-	URL        string `json:"url"`
-	Content    string `json:"content"`
-	Offset     int    `json:"offset"`
-	NextOffset *int   `json:"next_offset,omitempty"`
-	TotalChars int    `json:"total_chars"`
+	URL         string `json:"url"`
+	Requested   string `json:"requested_url"`
+	ContentType string `json:"content_type"`
+	Content     string `json:"content"`
+	Offset      int    `json:"offset"`
+	NextOffset  *int   `json:"next_offset,omitempty"`
+	TotalChars  int    `json:"total_chars"`
 }
 
-func (r *Registry) fetch(ctx context.Context, address string) ([]byte, *url.URL, string, error) {
+type fetchedResource struct {
+	data       []byte
+	final      *url.URL
+	kind       string
+	downloaded int
+}
+
+func (r *Registry) fetch(ctx context.Context, address string) (fetchedResource, error) {
 	u, err := publichttp.ParseURL(address)
 	if err == nil {
 		if !publichttp.PublicHost(u.Hostname()) {
@@ -48,13 +62,21 @@ func (r *Registry) fetch(ctx context.Context, address string) ([]byte, *url.URL,
 		}
 	}
 	if err != nil {
-		return nil, nil, "", errors.New("URL must use public HTTP(S), without credentials or a nonstandard port")
+		return fetchedResource{}, errors.New("URL must use public HTTP(S), without credentials or a nonstandard port")
 	}
-	b, final, typ, eligible, err := r.fetchPage(ctx, r.client, u)
+	channel, _ := ctx.Value(channelKey{}).(string)
+	key := resourceKey{channel, u.String()}
+	r.mu.Lock()
+	hit, ok := r.resources[key]
+	r.mu.Unlock()
+	if ok && hit.expires.After(time.Now()) {
+		return hit.resource, nil
+	}
+	res, eligible, err := r.fetchPage(ctx, r.client, u)
 	if err != nil && eligible && ctx.Err() == nil {
 		for _, relay := range r.proxies.candidates() {
 			cl := publichttp.PageClient(&relay)
-			b, final, typ, eligible, err = r.fetchPage(ctx, cl, u)
+			res, eligible, err = r.fetchPage(ctx, cl, u)
 			cl.CloseIdleConnections()
 			if err == nil || !eligible || ctx.Err() != nil {
 				break
@@ -62,34 +84,41 @@ func (r *Registry) fetch(ctx context.Context, address string) ([]byte, *url.URL,
 		}
 	}
 	if err != nil {
-		return nil, nil, "", err
+		return fetchedResource{}, err
 	}
-	kind := typ
+	kind := res.kind
 	if kind == "" {
-		kind = http.DetectContentType(b)
+		kind = http.DetectContentType(res.data)
 	}
 	mediaType, _, err := mime.ParseMediaType(kind)
 	if err != nil {
-		return nil, nil, "", errors.New("source has invalid content type")
+		return fetchedResource{}, errors.New("source has invalid content type")
 	}
 	switch mediaType {
-	case "text/html", "application/xhtml+xml":
-		reader, err := charset.NewReader(bytes.NewReader(b), kind)
-		if err != nil {
-			return nil, nil, "", errors.New("unsupported source charset")
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+		if res.kind == "" || http.DetectContentType(res.data) != mediaType {
+			return fetchedResource{}, errors.New("image MIME type and signature do not match")
 		}
-		b, err = io.ReadAll(io.LimitReader(reader, maxInputBytes+1))
-		if err != nil || len(b) > maxInputBytes {
-			return nil, nil, "", errors.New("decoded source exceeds input limit")
+		res.kind = mediaType
+		return res, nil
+	case "text/html", "application/xhtml+xml":
+		reader, err := charset.NewReader(bytes.NewReader(res.data), kind)
+		if err != nil {
+			return fetchedResource{}, errors.New("unsupported source charset")
+		}
+		res.data, err = io.ReadAll(io.LimitReader(reader, maxInputBytes+1))
+		if err != nil || len(res.data) > maxInputBytes {
+			return fetchedResource{}, errors.New("decoded source exceeds input limit")
 		}
 	case "text/plain", "text/markdown", "application/json", "text/json", "application/xml", "text/xml":
 	default:
-		return nil, nil, "", errors.New("source is not a readable text or HTML document")
+		return fetchedResource{}, fmt.Errorf("unsupported media type %s", mediaType)
 	}
-	if !utf8.Valid(b) {
-		return nil, nil, "", errors.New("source text is not UTF-8")
+	if !utf8.Valid(res.data) {
+		return fetchedResource{}, errors.New("source text is not UTF-8")
 	}
-	return b, final, mediaType, nil
+	res.kind = mediaType
+	return res, nil
 }
 func (r *Registry) cooldown(u *url.URL) error {
 	r.mu.Lock()
@@ -100,23 +129,27 @@ func (r *Registry) cooldown(u *url.URL) error {
 	return nil
 }
 
-func (r *Registry) fetchPage(ctx context.Context, cl *http.Client, u *url.URL) ([]byte, *url.URL, string, bool, error) {
-	if err := r.cooldown(u); err != nil {
-		return nil, nil, "", false, err
+func (r *Registry) fetchPage(ctx context.Context, cl *http.Client, u *url.URL) (fetchedResource, bool, error) {
+	if err := r.pace(ctx, u); err != nil {
+		return fetchedResource{}, false, err
 	}
 	client := *cl
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := cl.CheckRedirect(req, via); err != nil {
-			return err
+		if len(via) > r.limits.Redirects {
+			return errors.New("source redirect limit exceeded")
 		}
-		return r.cooldown(req.URL)
+		if err := cl.CheckRedirect(req, via); err != nil {
+			return fmt.Errorf("source redirect rejected: %w", err)
+		}
+		return r.pace(req.Context(), req.URL)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, nil, "", false, err
+		return fetchedResource{}, false, err
 	}
 	req.Header.Set("User-Agent", browserUA)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.8")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain,application/json,image/png,image/jpeg,image/webp,image/gif")
+	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	resp, err := client.Do(req)
 	if err != nil {
@@ -126,7 +159,7 @@ func (r *Registry) fetchPage(ctx context.Context, cl *http.Client, u *url.URL) (
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}
-		return nil, nil, "", eligible, err
+		return fetchedResource{}, eligible, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -141,20 +174,52 @@ func (r *Registry) fetchPage(ctx context.Context, cl *http.Client, u *url.URL) (
 				r.originRetry[resp.Request.URL.Host] = until
 				r.mu.Unlock()
 			}
-			return nil, nil, "", false, fmt.Errorf("source returned HTTP %d; Retry-After: %s", resp.StatusCode, bounded(value, 128))
+			return fetchedResource{}, false, fmt.Errorf("source returned HTTP %d; Retry-After: %s", resp.StatusCode, bounded(value, 128))
 		}
 		retry := resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout
-		return nil, nil, "", retry, fmt.Errorf("source returned HTTP %d", resp.StatusCode)
+		return fetchedResource{}, retry, fmt.Errorf("source returned HTTP %d", resp.StatusCode)
 	}
 	body := &idleBody{body: resp.Body}
-	b, err := io.ReadAll(io.LimitReader(body, maxInputBytes+1))
+	typ := resp.Header.Get("Content-Type")
+	kind, _, _ := mime.ParseMediaType(typ)
+	limit := maxInputBytes
+	if strings.HasPrefix(kind, "image/") {
+		limit = r.limits.DownloadBytes
+	}
+	if resp.ContentLength > int64(limit) {
+		return fetchedResource{}, false, fmt.Errorf("source exceeds %d MiB input limit", limit>>20)
+	}
+	b, err := io.ReadAll(io.LimitReader(body, int64(limit+1)))
 	if err != nil {
-		return nil, nil, "", true, err
+		return fetchedResource{}, true, err
 	}
-	if len(b) > maxInputBytes {
-		return nil, nil, "", false, errors.New("source page exceeds 2 MiB input limit")
+	if len(b) > limit {
+		return fetchedResource{}, false, fmt.Errorf("source exceeds %d MiB input limit", limit>>20)
 	}
-	return b, resp.Request.URL, resp.Header.Get("Content-Type"), false, nil
+	downloaded := len(b)
+	switch strings.ToLower(resp.Header.Get("Content-Encoding")) {
+	case "", "identity":
+	case "gzip":
+		zr, e := gzip.NewReader(bytes.NewReader(b))
+		if e != nil {
+			return fetchedResource{}, false, errors.New("malformed compressed response")
+		}
+		b, err = io.ReadAll(io.LimitReader(zr, int64(limit+1)))
+		zr.Close()
+		if err != nil || len(b) > limit {
+			return fetchedResource{}, false, errors.New("invalid or oversized decompressed response")
+		}
+	default:
+		return fetchedResource{}, false, errors.New("unsupported content encoding")
+	}
+	res := fetchedResource{b, resp.Request.URL, typ, downloaded}
+	if life := min(immutableLifetime(resp.Header), time.Duration(r.limits.CacheSeconds)*time.Second); life > 0 && u.String() == resp.Request.URL.String() && (kind == "image/png" || kind == "image/jpeg" || kind == "image/gif" || kind == "image/webp") && http.DetectContentType(b) == kind {
+		channel, _ := ctx.Value(channelKey{}).(string)
+		cached := res
+		cached.kind = kind
+		r.remember(resourceKey{channel, u.String()}, cached, life)
+	}
+	return res, false, nil
 }
 
 type idleBody struct{ body io.ReadCloser }
@@ -167,35 +232,53 @@ func (r *idleBody) Read(buf []byte) (int, error) {
 	}
 	return n, err
 }
-func (r *Registry) readURL(ctx context.Context, p readParams) (page, error) {
+func (r *Registry) readURL(ctx context.Context, p readParams) (any, []provider.Part, error) {
 	limit := 32768
 	if p.MaxChars != nil {
 		limit = *p.MaxChars
 	}
 	if p.Offset < 0 || limit < 1024 || limit > 65536 {
-		return page{}, errors.New("offset must be nonnegative and max_chars must be between 1024 and 65536")
+		return nil, nil, errors.New("offset must be nonnegative and max_chars must be between 1024 and 65536")
 	}
-	b, u, kind, err := r.fetch(ctx, p.URL)
+	if p.SourceURL != "" {
+		if _, err := publichttp.ParseURL(p.SourceURL); err != nil {
+			return nil, nil, errors.New("invalid referencing URL")
+		}
+	}
+	if p.MediaRole != "" && p.MediaRole != "unknown" && p.MediaRole != "thumbnail" && p.MediaRole != "derivative" && p.MediaRole != "original" {
+		return nil, nil, errors.New("invalid media role")
+	}
+	if p.MaxFrames != nil && (*p.MaxFrames < 1 || *p.MaxFrames > maxSamples) {
+		return nil, nil, errors.New("max_frames must be between 1 and 6")
+	}
+	res, err := r.fetch(ctx, p.URL)
 	if err != nil {
-		return page{}, err
+		return nil, nil, err
+	}
+	b, u, kind := res.data, res.final, res.kind
+	if strings.HasPrefix(kind, "image/") {
+		if p.Offset != 0 {
+			return nil, nil, errors.New("offset is only supported for text")
+		}
+		return r.readImage(ctx, p, res)
 	}
 	content := string(b)
 	if kind == "text/html" || kind == "application/xhtml+xml" {
 		content, err = markdown(ctx, b, u)
 		if err != nil {
-			return page{}, err
+			return nil, nil, err
 		}
 	}
 	characters := []rune(content)
 	if p.Offset > len(characters) {
-		return page{}, errors.New("offset exceeds source content length")
+		return nil, nil, errors.New("offset exceeds source content length")
 	}
 	end := min(p.Offset+limit, len(characters))
-	out := page{URL: u.String(), Content: string(characters[p.Offset:end]), Offset: p.Offset, TotalChars: len(characters)}
+	out := page{URL: u.String(), Requested: p.URL, ContentType: kind, Content: string(characters[p.Offset:end]), Offset: p.Offset, TotalChars: len(characters)}
 	if end < len(characters) {
 		out.NextOffset = &end
 	}
-	return out, nil
+	return out, nil, nil
 }
 func attr(n *html.Node, key string) string {
 	for _, a := range n.Attr {
@@ -288,6 +371,11 @@ func markdown(ctx context.Context, b []byte, base *url.URL) (string, error) {
 				out.WriteByte('[')
 			case "img":
 				out.WriteString(attr(n, "alt"))
+				if src := attr(n, "src"); src != "" {
+					if target, e := base.Parse(src); e == nil && target.User == nil && (target.Scheme == "http" || target.Scheme == "https") {
+						out.WriteString(" [image](" + strings.NewReplacer("(", "%28", ")", "%29").Replace(target.String()) + ")")
+					}
+				}
 				return nil
 			case "td", "th":
 				out.WriteString(" | ")
