@@ -100,6 +100,9 @@ type instanceResponse struct {
 type afterQuery struct {
 	After string `query:"after" description:"Exclusive UUID cursor; up to 100 results."`
 }
+type aiAccountReadQuery struct {
+	Channel string `query:"channel_id" description:"AI channel whose effective ManageChannels permission authorizes this settings lookup."`
+}
 type aiAvatarQuery struct {
 	Version string `query:"v" pattern:"^[0-9a-f]{32}$" description:"Immutable avatar version retained while referenced by settings, personas, turns or messages. Omit to read the current avatar."`
 }
@@ -139,6 +142,11 @@ func endpointContracts() map[string]endpointContract {
 	add("GET /api/v1/ai/accounts", "aiAccounts", "List AI connection status without credentials", nil, aiAccountsResponse{}, 200)
 	add("DELETE /api/v1/ai/accounts/{account}", "aiDisconnect", "Disconnect an AI account (ManageConfiguration)", nil, nil, 204)
 	add("GET /api/v1/ai/accounts/{account}/models", "aiModels", "List models for a configured AI account", nil, aiModelsResponse{}, 200)
+	for _, path := range []string{"GET /api/v1/ai/accounts", "GET /api/v1/ai/accounts/{account}/models"} {
+		v := c[path]
+		v.query = aiAccountReadQuery{}
+		c[path] = v
+	}
 	add("POST /api/v1/ai/oauth/start", "aiOAuthStart", "Prepare a single-use provider OAuth connection (ManageConfiguration)", ai.OAuthPrepareInput{}, ai.OAuthSession{}, 200)
 	add("POST /api/v1/ai/oauth/{session}/complete", "aiOAuthComplete", "Exchange an OAuth code and encrypt account credentials (ManageConfiguration)", ai.OAuthCompleteInput{}, ai.Account{}, 200)
 	add("GET /api/v1/channels/{id}/ai", "aiSettings", "Read AI channel settings", nil, ai.Settings{}, 200)
@@ -299,7 +307,7 @@ func endpointContracts() map[string]endpointContract {
 	add("GET /api/v1/conversations/{id}/messages/{message}", "getMessage", "Read a retained message by identity within an authorized conversation", nil, chat.Message{}, 200)
 	add("POST /api/v1/conversations/{id}/messages", "createMessage", "Commit a message with retry deduplication", CreateMessageRequest{}, chat.Message{}, 201)
 	add("PUT /api/v1/conversations/{id}/messages/{message}", "editMessage", "Edit an authored message", EditMessageRequest{}, chat.Message{}, 200)
-	add("DELETE /api/v1/conversations/{id}/messages/{message}", "deleteMessage", "Tombstone an authored message", nil, chat.Message{}, 200)
+	add("DELETE /api/v1/conversations/{id}/messages/{message}", "deleteMessage", "Delete an authored message or moderate a channel message, including an AI reply (effective ManageMessages)", nil, chat.Message{}, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds", "getMessageEmbeds", "Read a page of public link previews for a visible retained message, with optional continuation for image galleries", nil, embedsResponse{}, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/image", "getEmbedImage", "Download a bounded preview image after rechecking message access", nil, nil, 200)
 	add("GET /api/v1/conversations/{id}/messages/{message}/embeds/video-ticket", "getEmbedVideoTicket", "Create a media-only playback ticket valid for 30 minutes; message and session access are rechecked on every range", nil, embedTicketResponse{}, 200)

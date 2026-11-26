@@ -37,6 +37,7 @@ var migrationFiles = [...]string{
 	"023_ai_personality_handoff.sql",
 	"024_message_visibility_attachment_rollover.sql",
 	"025_personality_consultations.sql",
+	"026_channel_moderation_permissions.sql",
 }
 
 const SchemaVersion = len(migrationFiles)

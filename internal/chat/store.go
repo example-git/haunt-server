@@ -444,11 +444,21 @@ func (s *Store) Edit(ctx context.Context, p identity.Principal, conv, id, body s
 		return Message{}, err
 	}
 	if m.AuthorID != p.User.ID {
-		var kind string
-		if err = tx.QueryRow(ctx, `SELECT kind FROM chatxo.conversations WHERE id=$1`, conv).Scan(&kind); err != nil {
+		if !remove {
+			return Message{}, identity.ErrForbidden
+		}
+		var channel *string
+		if err = tx.QueryRow(ctx, `SELECT CASE WHEN kind='channel' THEN channel_id END FROM chatxo.conversations WHERE id=$1`, conv).Scan(&channel); err != nil {
 			return Message{}, err
 		}
-		if !remove || kind != "channel" || !p.Can(identity.ManageMessages) {
+		if channel == nil {
+			return Message{}, identity.ErrForbidden
+		}
+		ch, err := s.Identity.ChannelForTransaction(ctx, tx, p, *channel)
+		if err != nil {
+			return Message{}, err
+		}
+		if ch.Permissions&identity.ManageMessages == 0 {
 			return Message{}, identity.ErrForbidden
 		}
 		if err = s.Identity.AuditTransaction(ctx, tx, p, id, "message.delete"); err != nil {

@@ -3294,12 +3294,12 @@
         "additionalProperties": false,
         "properties": {
           "allow": {
-            "maximum": 786439,
+            "maximum": 1048575,
             "minimum": 0,
             "type": "integer"
           },
           "deny": {
-            "maximum": 786439,
+            "maximum": 1048575,
             "minimum": 0,
             "type": "integer"
           }
@@ -6085,6 +6085,17 @@
       "get": {
         "description": "",
         "operationId": "aiAccounts",
+        "parameters": [
+          {
+            "description": "AI channel whose effective ManageChannels permission authorizes this settings lookup.",
+            "in": "query",
+            "name": "channel_id",
+            "schema": {
+              "description": "AI channel whose effective ManageChannels permission authorizes this settings lookup.",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -6170,6 +6181,15 @@
             "required": true,
             "schema": {
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "AI channel whose effective ManageChannels permission authorizes this settings lookup.",
+            "in": "query",
+            "name": "channel_id",
+            "schema": {
+              "description": "AI channel whose effective ManageChannels permission authorizes this settings lookup.",
               "type": "string"
             }
           }
@@ -9140,7 +9160,7 @@
             "session": []
           }
         ],
-        "summary": "Tombstone an authored message",
+        "summary": "Delete an authored message or moderate a channel message, including an AI reply (effective ManageMessages)",
         "tags": [
           "conversations"
         ]
@@ -12127,5 +12147,148 @@
       }
     }
   },
+  "x-haunt-legacy-override-mask": 786439,
+  "x-haunt-role-permissions": [
+    {
+      "key": "Administrator",
+      "bit": 32768,
+      "label": "Administrator"
+    },
+    {
+      "key": "ViewChannel",
+      "bit": 1,
+      "label": "View channels",
+      "kinds": [
+        "text",
+        "voice",
+        "ai"
+      ],
+      "default": true
+    },
+    {
+      "key": "SendMessages",
+      "bit": 2,
+      "label": "Send messages",
+      "kinds": [
+        "text",
+        "voice",
+        "ai"
+      ],
+      "default": true
+    },
+    {
+      "key": "ConnectVoice",
+      "bit": 4,
+      "label": "Join voice channels",
+      "kinds": [
+        "voice"
+      ],
+      "default": true
+    },
+    {
+      "key": "UseAI",
+      "bit": 262144,
+      "label": "Request AI responses",
+      "kinds": [
+        "ai"
+      ],
+      "default": true
+    },
+    {
+      "key": "SwitchAIPreset",
+      "bit": 524288,
+      "label": "Switch AI presets",
+      "kinds": [
+        "ai"
+      ],
+      "default": true
+    },
+    {
+      "key": "CreateInvites",
+      "bit": 8,
+      "label": "Create invitations"
+    },
+    {
+      "key": "ManageChannels",
+      "bit": 16,
+      "label": "Manage channels",
+      "kinds": [
+        "text",
+        "voice",
+        "ai"
+      ]
+    },
+    {
+      "key": "ManageServer",
+      "bit": 32,
+      "label": "Manage server appearance \u0026 emojis"
+    },
+    {
+      "key": "ManageRoles",
+      "bit": 64,
+      "label": "Manage lower-ranked roles"
+    },
+    {
+      "key": "KickMembers",
+      "bit": 128,
+      "label": "Kick members"
+    },
+    {
+      "key": "BanMembers",
+      "bit": 256,
+      "label": "Ban members \u0026 review appeals"
+    },
+    {
+      "key": "MuteMembers",
+      "bit": 65536,
+      "label": "Mute members",
+      "kinds": [
+        "voice"
+      ]
+    },
+    {
+      "key": "DeafenMembers",
+      "bit": 131072,
+      "label": "Deafen members",
+      "kinds": [
+        "voice"
+      ]
+    },
+    {
+      "key": "DeleteMembers",
+      "bit": 512,
+      "label": "Delete accounts"
+    },
+    {
+      "key": "ViewAuditLog",
+      "bit": 1024,
+      "label": "View audit log"
+    },
+    {
+      "key": "ViewMemberIPs",
+      "bit": 2048,
+      "label": "View member IPs \u0026 manage IP bans"
+    },
+    {
+      "key": "ManageMessages",
+      "bit": 4096,
+      "label": "Delete channel messages",
+      "kinds": [
+        "text",
+        "voice",
+        "ai"
+      ]
+    },
+    {
+      "key": "ResetPasswords",
+      "bit": 8192,
+      "label": "Reset member passwords"
+    },
+    {
+      "key": "ManageConfiguration",
+      "bit": 16384,
+      "label": "Manage configuration, storage \u0026 extensions"
+    }
+  ],
   "x-websocket-document": "/websocket.json"
 }

@@ -27,33 +27,22 @@ func (s *Service) VoiceRestriction(ctx context.Context, channel, user string) (V
 	return v, err
 }
 
-func (s *Service) voiceModerationChannel(ctx context.Context, tx pgx.Tx, p Principal, channel string) error {
+func (s *Service) voiceModerationChannel(ctx context.Context, tx pgx.Tx, p Principal, channel string, required int64) error {
 	if !ValidID(channel) {
 		return ErrInvalid
 	}
-	var kind string
-	var categoryAllow, categoryDeny, channelAllow, channelDeny int64
-	err := tx.QueryRow(ctx, `SELECT c.kind,cat.allow_bits,cat.deny_bits,ch.allow_bits,ch.deny_bits
- FROM chatxo.channels c
- LEFT JOIN LATERAL (
- SELECT COALESCE(bit_or(o.allow_bits),0) allow_bits,COALESCE(bit_or(o.deny_bits),0) deny_bits
- FROM chatxo.category_permissions o JOIN chatxo.roles r ON r.id=o.role_id
- WHERE o.category_id=c.category_id AND (r.is_default OR EXISTS(SELECT 1 FROM chatxo.user_roles ur WHERE ur.role_id=r.id AND ur.user_id=$2))
- ) cat ON true
- LEFT JOIN LATERAL (
- SELECT COALESCE(bit_or(o.allow_bits),0) allow_bits,COALESCE(bit_or(o.deny_bits),0) deny_bits
- FROM chatxo.channel_permissions o JOIN chatxo.roles r ON r.id=o.role_id
- WHERE o.channel_id=c.id AND (r.is_default OR EXISTS(SELECT 1 FROM chatxo.user_roles ur WHERE ur.role_id=r.id AND ur.user_id=$2))
- ) ch ON true
- WHERE c.instance_id=$1 AND c.id=$3`, s.instanceID, p.User.ID, channel).Scan(&kind, &categoryAllow, &categoryDeny, &channelAllow, &channelDeny)
+	items, err := s.channels(ctx, tx, p, channel, 0)
 	if err != nil {
-		return translate(err)
+		return err
 	}
-	if kind != "voice" {
+	if len(items) == 0 {
+		return ErrNotFound
+	}
+	ch := items[0]
+	if ch.Kind != "voice" {
 		return ErrInvalid
 	}
-	bits := (((p.Permissions | categoryAllow) & ^categoryDeny) | channelAllow) & ^channelDeny
-	if !p.Can(Administrator) && bits&ViewChannel == 0 {
+	if ch.Permissions&ViewChannel == 0 || ch.Permissions&(MuteMembers|DeafenMembers) == 0 || ch.Permissions&required != required {
 		return ErrForbidden
 	}
 	return nil
@@ -68,10 +57,7 @@ func (s *Service) VoiceRestrictions(ctx context.Context, p Principal, channel, a
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	if !p.Can(MuteMembers) && !p.Can(DeafenMembers) {
-		return nil, ErrForbidden
-	}
-	if err = s.voiceModerationChannel(ctx, tx, p, channel); err != nil {
+	if err = s.voiceModerationChannel(ctx, tx, p, channel, 0); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, `SELECT v.user_id,v.muted,v.deafened,u.id,u.username,u.is_owner,u.created_at,u.display_name,u.accent_color
@@ -107,12 +93,12 @@ func (s *Service) SetVoiceRestriction(ctx context.Context, p Principal, channel,
 	if deafened != nil {
 		permission |= DeafenMembers
 	}
-	tx, p, err := s.moderationTx(ctx, p, permission)
+	tx, p, err := s.moderationTx(ctx, p, 0)
 	if err != nil {
 		return v, err
 	}
 	defer tx.Rollback(ctx)
-	if err = s.voiceModerationChannel(ctx, tx, p, channel); err != nil {
+	if err = s.voiceModerationChannel(ctx, tx, p, channel, permission); err != nil {
 		return v, err
 	}
 	if err = s.moderateTarget(ctx, tx, p, user); err != nil {

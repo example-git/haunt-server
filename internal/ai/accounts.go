@@ -42,8 +42,8 @@ func (s *Service) Providers(ctx context.Context, p identity.Principal) ([]Provid
 	}
 	return out, nil
 }
-func (s *Service) Accounts(ctx context.Context, p identity.Principal) ([]Account, error) {
-	if err := s.authorizeAccountRead(ctx, p); err != nil {
+func (s *Service) Accounts(ctx context.Context, p identity.Principal, channel string) ([]Account, error) {
+	if err := s.authorizeAccountRead(ctx, p, channel); err != nil {
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT id,provider,status,label,expires_at,created_at FROM chatxo.ai_accounts WHERE instance_id=$1 ORDER BY created_at,id`, s.options.InstanceID)
@@ -126,8 +126,8 @@ func (s *Service) Disconnect(ctx context.Context, p identity.Principal, id strin
 		return s.enforce(ctx, tx, "")
 	})
 }
-func (s *Service) Models(ctx context.Context, p identity.Principal, id string) ([]provider.Model, error) {
-	if err := s.authorizeAccountRead(ctx, p); err != nil {
+func (s *Service) Models(ctx context.Context, p identity.Principal, id, channel string) ([]provider.Model, error) {
+	if err := s.authorizeAccountRead(ctx, p, channel); err != nil {
 		return nil, err
 	}
 	a, c, err := s.credentials(ctx, id)
@@ -244,7 +244,11 @@ func (s *Service) refreshAccounts(ctx context.Context) {
 	}
 }
 
-func (s *Service) authorizeAccountRead(ctx context.Context, p identity.Principal) error {
+func (s *Service) authorizeAccountRead(ctx context.Context, p identity.Principal, channel string) error {
+	if channel != "" {
+		_, err := s.channel(ctx, p, channel, true)
+		return err
+	}
 	p, err := s.ids.Refresh(ctx, p)
 	if err != nil {
 		return err

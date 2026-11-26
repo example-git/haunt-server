@@ -47,8 +47,7 @@ const (
 	DeafenMembers
 	UseAI
 	SwitchAIPreset
-	AllPermissions     int64 = (1 << 20) - 1
-	ChannelPermissions       = ViewChannel | SendMessages | ConnectVoice | UseAI | SwitchAIPreset
+	AllPermissions int64 = (1 << 20) - 1
 )
 
 type User struct {

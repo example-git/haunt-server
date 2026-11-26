@@ -55,8 +55,12 @@ Invitation creation requires owner status or `create_invites`. Uses range from 1
 | 8192 | `reset_passwords` | Reset lower-ranked members' passwords |
 | 16384 | `manage_configuration` | Runtime limits, storage, audio plugins, server extensions and maintenance |
 | 32768 | `administrator` | All server permissions and bypass of category/channel overrides |
+| 65536 | `mute_members` | Mute or unmute a lower-ranked member in a voice channel |
+| 131072 | `deafen_members` | Deafen or undeafen a lower-ranked member in a voice channel |
+| 262144 | `use_ai` | Request an AI response in an AI channel |
+| 524288 | `switch_ai_preset` | Select an AI personality in an AI channel |
 
-The owner and members with Administrator always have all permissions. Servers advertise `community.administrator` when this bit is supported. Every account implicitly receives the default `everyone` role (initially 7); custom assigned roles add their permissions. The owner and members with ManageRoles may change lower-ranked roles and assignments, subject to the role hierarchy. The owner and Administrators may edit the default role. Administrator retains the member's role ranking and does not change owner identity. The default role is editable but cannot be deleted or explicitly assigned. Owner status cannot be changed through role assignment.
+The owner and members with Administrator always have all permissions. Servers advertise `community.administrator` when this bit is supported. Every account implicitly receives the default `everyone` role (initially view, send, join voice, request AI responses and switch AI presets); custom assigned roles add their permissions. The owner and members with ManageRoles may change lower-ranked roles and assignments, subject to the role hierarchy. The owner and Administrators may edit the default role. Administrator retains the member's role ranking and does not change owner identity. The default role is editable but cannot be deleted or explicitly assigned. Owner status cannot be changed through role assignment.
 
 | Method/path | Behavior |
 | --- | --- |
@@ -67,7 +71,7 @@ The owner and members with Administrator always have all permissions. Servers ad
 | `GET /api/v1/members?after={id}` | ManageRoles or moderation permissions: up to 100 members ordered by UUID; use the last ID for the next page |
 | `PUT /api/v1/members/{id}/roles` | ManageRoles: `{"role_ids":["role UUID"]}` replaces lower-ranked members’ assignments; `[]` clears custom roles |
 
-Permission bits must be explicit and in the range 0–65535. Assignments are limited to 32 unique existing custom roles and replace atomically. Existing sessions read updated roles on subsequent requests; there is no authorization cache.
+Permission bits must be explicit and in the range 0–1048575. Assignments are limited to 32 unique existing custom roles and replace atomically. Existing sessions read updated roles on subsequent requests; there is no authorization cache.
 
 Servers advertising `community.role_sections` accept an optional boolean
 `display_separately` on role create/update. New and migrated roles default to false;
@@ -97,7 +101,7 @@ Category/channel names contain 1–64 characters. Mutations require `manage_chan
 | `GET /api/v1/{categories\|channels}/{id}/permissions` | Manager: list role overrides |
 | `PUT /api/v1/{categories\|channels}/{id}/permissions/{role}` | Manager: `{"allow":1,"deny":0}` |
 
-Overrides may contain only channel bits (1, 2, 4), with no bit in both allow and deny. Apply the role union, then category overrides, then channel overrides. At each scope, union all applicable grants/denials and let denials win. Channel overrides can restore a category-denied permission. `{"allow":0,"deny":0}` clears the effect of an override. Invitation/management permissions remain instance-wide. Owners and Administrators bypass overrides; managers can administer a channel without read access, but metadata discovery still applies read checks.
+The server publishes the complete role permission catalog, including applicable channel types, in the OpenAPI extension `x-haunt-role-permissions`. All channel types support view, send, manage the channel, and delete other members’ or AI messages. Voice adds join, mute and deafen. AI adds request responses and switch presets. Category overrides supply inherited defaults for these permissions. The server applies base roles, then category overrides, then channel overrides. A deny wins across roles at each level. Passing zero for both masks clears an override. Owners and Administrators bypass overrides. Managing a known channel does not require reading its history. Creating or moving channels requires server-wide Manage Channels. Override editors can change only permissions they hold at that scope.
 
 ## Request limits and lifecycle
 

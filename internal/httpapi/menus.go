@@ -142,7 +142,7 @@ func (f *Features) menuRoutes(a *api, mux routeRegistrar) {
 			return
 		}
 		v := MenuManifest{Version: 1, Pages: []MenuPage{}}
-		if p.Can(identity.ManageChannels) {
+		if channel.Permissions&identity.ManageChannels != 0 {
 			v.Pages = []MenuPage{
 				{ID: "overview", Label: "Overview", ContextLabel: "Edit channel", Builtin: "overview"},
 				{ID: "permissions", Label: "Permissions", ContextLabel: "Channel permissions", Builtin: "permissions"},

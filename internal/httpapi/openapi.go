@@ -11,6 +11,7 @@ import (
 
 	"github.com/example-git/haunt-server/internal/chat"
 	"github.com/example-git/haunt-server/internal/config"
+	"github.com/example-git/haunt-server/internal/identity"
 	"github.com/example-git/haunt-server/internal/voice"
 	"github.com/pion/webrtc/v4"
 	"github.com/swaggest/jsonschema-go"
@@ -199,6 +200,8 @@ func GenerateDocuments() (APIDocuments, error) {
 	if err = json.Unmarshal(data, &doc); err != nil {
 		return APIDocuments{}, err
 	}
+	doc["x-haunt-role-permissions"] = identity.RolePermissions
+	doc["x-haunt-legacy-override-mask"] = identity.LegacyOverrideMask
 	paths := doc["paths"].(map[string]any)
 	schemas := map[string]any{}
 	for _, name := range names {

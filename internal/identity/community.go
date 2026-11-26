@@ -242,13 +242,16 @@ func (s *Service) SaveCategory(ctx context.Context, p Principal, id, name string
 
 // Apply category overrides, then channel overrides, to the authenticated
 // request's base roles. At each scope deny wins across roles.
-// Channel permissions can be overridden; management is instance-wide.
+// Callers choose the required permission; channel listings always require ViewChannel.
 func (s *Service) Channels(ctx context.Context, p Principal, id string) ([]Channel, error) {
-	return s.channels(ctx, s.pool, p, id)
+	return s.channels(ctx, s.pool, p, id, ViewChannel)
 }
-func (s *Service) channels(ctx context.Context, q interface {
+
+type channelQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
-}, p Principal, id string) ([]Channel, error) {
+}
+
+func (s *Service) channels(ctx context.Context, q channelQuerier, p Principal, id string, required int64) ([]Channel, error) {
 	if id != "" && !ValidID(id) {
 		return nil, ErrInvalid
 	}
@@ -280,7 +283,7 @@ func (s *Service) channels(ctx context.Context, q interface {
 		if err := rows.Scan(&v.ID, &v.CategoryID, &v.Name, &v.Kind, &v.Topic, &v.Icon, &v.Permissions); err != nil {
 			return nil, err
 		}
-		if v.Permissions&ViewChannel != 0 {
+		if v.Permissions&required == required {
 			items = append(items, v)
 		}
 	}
@@ -303,7 +306,7 @@ func (s *Service) ChannelForTransaction(ctx context.Context, tx pgx.Tx, p Princi
 	if err != nil {
 		return Channel{}, err
 	}
-	items, err := s.channels(ctx, tx, fresh, id)
+	items, err := s.channels(ctx, tx, fresh, id, ViewChannel)
 	if err != nil {
 		return Channel{}, err
 	}
@@ -311,6 +314,34 @@ func (s *Service) ChannelForTransaction(ctx context.Context, tx pgx.Tx, p Princi
 		return Channel{}, ErrNotFound
 	}
 	return items[0], nil
+}
+
+// Management of a known channel has never required permission to read its chat.
+// Keep that behavior while honoring grants and denials on the channel itself.
+func (s *Service) managementPermissions(ctx context.Context, q channelQuerier, p Principal, kind, id string) (int64, string, error) {
+	if !ValidID(id) {
+		return 0, "", ErrInvalid
+	}
+	bits := p.Permissions
+	switch kind {
+	case "channel":
+		items, err := s.channels(ctx, q, p, id, 0)
+		if err != nil {
+			return 0, "", err
+		}
+		if len(items) == 0 {
+			return 0, "", ErrNotFound
+		}
+		bits, kind = items[0].Permissions, items[0].Kind
+	case "category":
+		// Managing a category itself is an installation-level operation.
+	default:
+		return 0, "", ErrInvalid
+	}
+	if !p.Can(Administrator) && bits&ManageChannels == 0 {
+		return 0, "", ErrForbidden
+	}
+	return bits, kind, nil
 }
 
 // ChannelDetails allows older clients to omit optional metadata without erasing it.
@@ -328,7 +359,7 @@ func validChannelIcon(icon string) bool {
 }
 
 func (s *Service) SaveChannel(ctx context.Context, p Principal, id, name, kind string, category *string, details ...ChannelDetails) (Channel, error) {
-	if !p.Can(ManageChannels) {
+	if id == "" && !p.Can(ManageChannels) {
 		return Channel{}, ErrForbidden
 	}
 	if !validName(name, 64) || (kind != "text" && kind != "voice" && kind != "ai") || (id != "" && !ValidID(id)) || (category != nil && !ValidID(*category)) {
@@ -344,11 +375,34 @@ func (s *Service) SaveChannel(ctx context.Context, p Principal, id, name, kind s
 	if topic != nil && !validText(*topic, 512) {
 		return Channel{}, ErrInvalid
 	}
+	tx, p, err := s.moderationTx(ctx, p, 0)
+	if err != nil {
+		return Channel{}, err
+	}
+	defer tx.Rollback(ctx)
+	if id == "" {
+		if !p.Can(ManageChannels) {
+			return Channel{}, ErrForbidden
+		}
+	} else {
+		if _, _, err := s.managementPermissions(ctx, tx, p, "channel", id); err != nil {
+			return Channel{}, err
+		}
+		if !p.Can(ManageChannels) {
+			var sameCategory bool
+			if err := tx.QueryRow(ctx, `SELECT category_id IS NOT DISTINCT FROM $3::uuid FROM chatxo.channels WHERE instance_id=$1 AND id=$2`, s.instanceID, id, category).Scan(&sameCategory); err != nil {
+				return Channel{}, translate(err)
+			}
+			if !sameCategory {
+				return Channel{}, ErrForbidden
+			}
+		}
+	}
 	// Category references must belong to this installation. The schema's
 	// singleton identity prevents a second installation sharing this database.
 	if category != nil {
 		var exists bool
-		if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chatxo.categories WHERE instance_id=$1 AND id=$2)`, s.instanceID, *category).Scan(&exists); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chatxo.categories WHERE instance_id=$1 AND id=$2)`, s.instanceID, *category).Scan(&exists); err != nil {
 			return Channel{}, err
 		}
 		if !exists {
@@ -356,27 +410,23 @@ func (s *Service) SaveChannel(ctx context.Context, p Principal, id, name, kind s
 		}
 	}
 	v := Channel{ID: id, CategoryID: category, Name: name, Kind: kind}
-	var err error
 	if id == "" {
 		v.ID = newID()
-		err = s.pool.QueryRow(ctx, `INSERT INTO chatxo.channels(id,instance_id,category_id,name,kind,topic,icon) VALUES ($1,$2,$3,$4,$5,COALESCE($6,''),COALESCE($7,'')) RETURNING topic,icon`, v.ID, s.instanceID, category, name, kind, topic, icon).Scan(&v.Topic, &v.Icon)
+		err = tx.QueryRow(ctx, `INSERT INTO chatxo.channels(id,instance_id,category_id,name,kind,topic,icon) VALUES ($1,$2,$3,$4,$5,COALESCE($6,''),COALESCE($7,'')) RETURNING topic,icon`, v.ID, s.instanceID, category, name, kind, topic, icon).Scan(&v.Topic, &v.Icon)
 	} else {
 		// Channel kinds are immutable so later message/media state cannot be
 		// reinterpreted by changing a text channel into a voice channel.
-		err = s.pool.QueryRow(ctx, `UPDATE chatxo.channels SET name=$3,category_id=$4,topic=COALESCE($6,topic),icon=COALESCE($7,icon) WHERE instance_id=$1 AND id=$2 AND kind=$5 RETURNING id,topic,icon`, s.instanceID, id, name, category, kind, topic, icon).Scan(&v.ID, &v.Topic, &v.Icon)
+		err = tx.QueryRow(ctx, `UPDATE chatxo.channels SET name=$3,category_id=$4,topic=COALESCE($6,topic),icon=COALESCE($7,icon) WHERE instance_id=$1 AND id=$2 AND kind=$5 RETURNING id,topic,icon`, s.instanceID, id, name, category, kind, topic, icon).Scan(&v.ID, &v.Topic, &v.Icon)
 	}
 	if err != nil {
 		return Channel{}, translate(err)
 	}
 	// Return metadata independent of manager's read permission; managers may
 	// manage channels they cannot read.
-	return v, nil
+	return v, translate(tx.Commit(ctx))
 }
 
 func (s *Service) DeleteResource(ctx context.Context, p Principal, kind, id string) error {
-	if !p.Can(ManageChannels) {
-		return ErrForbidden
-	}
 	if !ValidID(id) {
 		return ErrInvalid
 	}
@@ -396,8 +446,8 @@ func (s *Service) DeleteResource(ctx context.Context, p Principal, kind, id stri
 	if err != nil {
 		return err
 	}
-	if !p.Can(ManageChannels) {
-		return ErrForbidden
+	if _, _, err = s.managementPermissions(ctx, tx, p, kind, id); err != nil {
+		return err
 	}
 	tag, err := tx.Exec(ctx, query, s.instanceID, id)
 	if err != nil {
@@ -410,11 +460,38 @@ func (s *Service) DeleteResource(ctx context.Context, p Principal, kind, id stri
 }
 
 func (s *Service) SetOverride(ctx context.Context, p Principal, kind, id, roleID string, allow, deny int64) error {
-	if !p.Can(ManageChannels) {
-		return ErrForbidden
-	}
 	if !ValidID(id) || !ValidID(roleID) || allow < 0 || deny < 0 || (allow|deny) & ^ChannelPermissions != 0 || allow&deny != 0 {
 		return ErrInvalid
+	}
+	tx, p, err := s.moderationTx(ctx, p, 0)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	bits, channelKind, err := s.managementPermissions(ctx, tx, p, kind, id)
+	if err != nil {
+		return err
+	}
+	// Legacy clients send the original five access flags for every channel kind.
+	// Preserve their writes; newly scoped moderation permissions must apply here.
+	if channelKind != "category" && (allow|deny)&^(channelPermissionMask(channelKind)|LegacyOverrideMask) != 0 {
+		return ErrInvalid
+	}
+	if !p.Can(Administrator) {
+		// Compare both masks so a replacement cannot silently clear a deny or
+		// grant an authority the editor lacks. Unchanged entries can round-trip.
+		lookup := `SELECT allow_bits,deny_bits FROM chatxo.channel_permissions WHERE channel_id=$1 AND role_id=$2`
+		if kind == "category" {
+			lookup = `SELECT allow_bits,deny_bits FROM chatxo.category_permissions WHERE category_id=$1 AND role_id=$2`
+		}
+		var prevAllow, prevDeny int64
+		err := tx.QueryRow(ctx, lookup, id, roleID).Scan(&prevAllow, &prevDeny)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if ((prevAllow^allow)|(prevDeny^deny))&^bits != 0 {
+			return ErrForbidden
+		}
 	}
 	query := `INSERT INTO chatxo.channel_permissions(channel_id,role_id,allow_bits,deny_bits)
         SELECT c.id,r.id,$4,$5 FROM chatxo.channels c JOIN chatxo.roles r ON r.instance_id=c.instance_id
@@ -426,22 +503,19 @@ func (s *Service) SetOverride(ctx context.Context, p Principal, kind, id, roleID
         WHERE c.instance_id=$1 AND c.id=$2 AND r.id=$3
         ON CONFLICT (category_id,role_id) DO UPDATE SET allow_bits=excluded.allow_bits,deny_bits=excluded.deny_bits`
 	}
-	tag, err := s.pool.Exec(ctx, query, s.instanceID, id, roleID, allow, deny)
+	tag, err := tx.Exec(ctx, query, s.instanceID, id, roleID, allow, deny)
 	if err != nil {
 		return translate(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return translate(tx.Commit(ctx))
 }
 
 func (s *Service) Overrides(ctx context.Context, p Principal, kind, id string) ([]Override, error) {
-	if !p.Can(ManageChannels) {
-		return nil, ErrForbidden
-	}
-	if !ValidID(id) {
-		return nil, ErrInvalid
+	if _, _, err := s.managementPermissions(ctx, s.pool, p, kind, id); err != nil {
+		return nil, err
 	}
 	existsQuery := `SELECT id FROM chatxo.channels WHERE instance_id=$1 AND id=$2`
 	query := `SELECT role_id,allow_bits,deny_bits FROM chatxo.channel_permissions WHERE channel_id=$1 ORDER BY role_id`

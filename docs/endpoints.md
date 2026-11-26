@@ -15,7 +15,7 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | DELETE | `/api/v1/channels/{id}/ai/avatar` | Remove an AI avatar (ManageChannels) | Bearer | 204 |
 | DELETE | `/api/v1/channels/{id}/ai/presets/{preset}` | Remove an AI persona (ManageChannels) | Bearer | 204 |
 | DELETE | `/api/v1/channels/{id}/ai/presets/{preset}/avatar` | Remove an AI avatar (ManageChannels) | Bearer | 204 |
-| DELETE | `/api/v1/conversations/{id}/messages/{message}` | Tombstone an authored message | Bearer | 200 |
+| DELETE | `/api/v1/conversations/{id}/messages/{message}` | Delete an authored message or moderate a channel message, including an AI reply (effective ManageMessages) | Bearer | 200 |
 | DELETE | `/api/v1/emojis/{id}` | Delete a custom emoji (ManageServer) | Bearer | 204 |
 | DELETE | `/api/v1/instance/banner` | Remove banner; icons/banners require ManageServer | Bearer | 204 |
 | DELETE | `/api/v1/instance/icon` | Remove icon; icons/banners require ManageServer | Bearer | 204 |

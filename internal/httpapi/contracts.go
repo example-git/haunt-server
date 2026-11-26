@@ -50,8 +50,8 @@ type SaveChannelRequest struct {
 }
 
 type SetPermissionsRequest struct {
-	Allow *int64 `json:"allow" required:"true" nullable:"false" minimum:"0" maximum:"786439"`
-	Deny  *int64 `json:"deny" required:"true" nullable:"false" minimum:"0" maximum:"786439"`
+	Allow *int64 `json:"allow" required:"true" nullable:"false" minimum:"0" maximum:"1048575"`
+	Deny  *int64 `json:"deny" required:"true" nullable:"false" minimum:"0" maximum:"1048575"`
 }
 
 type CredentialsRequest struct {

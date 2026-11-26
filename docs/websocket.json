@@ -3295,12 +3295,12 @@
         "additionalProperties": false,
         "properties": {
           "allow": {
-            "maximum": 786439,
+            "maximum": 1048575,
             "minimum": 0,
             "type": "integer"
           },
           "deny": {
-            "maximum": 786439,
+            "maximum": 1048575,
             "minimum": 0,
             "type": "integer"
           }

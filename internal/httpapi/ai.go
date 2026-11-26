@@ -46,7 +46,7 @@ func (f *Features) aiRoutes(a *api, mux routeRegistrar) {
 		result(w, r, aiProvidersResponse{Providers: items}, err)
 	}))
 	mux.HandleFunc("GET /api/v1/ai/accounts", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
-		items, err := f.AI.Accounts(r.Context(), p)
+		items, err := f.AI.Accounts(r.Context(), p, r.URL.Query().Get("channel_id"))
 		result(w, r, aiAccountsResponse{Accounts: items}, err)
 	}))
 	mux.HandleFunc("DELETE /api/v1/ai/accounts/{account}", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
@@ -57,7 +57,7 @@ func (f *Features) aiRoutes(a *api, mux routeRegistrar) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	mux.HandleFunc("GET /api/v1/ai/accounts/{account}/models", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
-		items, err := f.AI.Models(r.Context(), p, r.PathValue("account"))
+		items, err := f.AI.Models(r.Context(), p, r.PathValue("account"), r.URL.Query().Get("channel_id"))
 		result(w, r, aiModelsResponse{Models: items}, err)
 	}))
 	mux.HandleFunc("POST /api/v1/ai/oauth/start", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
