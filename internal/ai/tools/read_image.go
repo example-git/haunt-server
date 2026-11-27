@@ -211,3 +211,20 @@ func encodeFrame(src image.Image, side, ms int) (visualFrame, error) {
 	}
 	return visualFrame{Timestamp: ms, Width: w, Height: h, Format: mime, Pixels: buf.Bytes()}, nil
 }
+
+// GeneratedPreview makes a bounded visual part from the exact private Codex output.
+func GeneratedPreview(data []byte) (provider.Part, error) {
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > 8192 || cfg.Height > 8192 || int64(cfg.Width)*int64(cfg.Height) > 24<<20 {
+		return provider.Part{}, errors.New("generated image exceeds preview limits or is malformed")
+	}
+	if format != "png" && format != "jpeg" && format != "webp" || animatedContainer(data, format) {
+		return provider.Part{}, errors.New("generated image preview requires a supported still image")
+	}
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return provider.Part{}, err
+	}
+	frame, err := encodeFrame(src, 1536, 0)
+	return provider.Part{Type: "image", MIMEType: frame.Format, Data: frame.Pixels}, err
+}

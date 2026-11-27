@@ -148,7 +148,7 @@ func (f *aiFixture) claim(t *testing.T) claimedTurn {
 func (f *aiFixture) accounting(t *testing.T) {
 	t.Helper()
 	var stored, actual int64
-	err := f.s.pool.QueryRow(context.Background(), `SELECT text_bytes,(SELECT COALESCE(sum(bytes),0) FROM chatxo.messages)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.events)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_turns)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_turn_steps)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_channel_settings)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_presets)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_avatars) FROM chatxo.storage WHERE singleton`).Scan(&stored, &actual)
+	err := f.s.pool.QueryRow(context.Background(), `SELECT text_bytes,(SELECT COALESCE(sum(bytes),0) FROM chatxo.messages)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.events)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_turns)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_turn_steps)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_channel_settings)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_presets)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_avatars)+(SELECT COALESCE(sum(bytes),0) FROM chatxo.ai_media) FROM chatxo.storage WHERE singleton`).Scan(&stored, &actual)
 	if err != nil {
 		t.Fatal(err)
 	}

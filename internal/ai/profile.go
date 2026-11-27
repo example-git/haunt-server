@@ -127,18 +127,28 @@ func (pictures profilePictures) visualContext(req provider.Request) provider.Req
 	}
 	remainingCount, remainingBytes := maxContextImages, 23<<20
 	last := len(req.Messages) - 1
-	for _, p := range req.Messages[last].Parts {
-		if p.Type == "image" {
-			remainingCount--
-			remainingBytes -= len(p.Data)
-		}
-	}
 	for _, part := range req.ToolMedia {
 		if part.Type == "image" {
 			remainingCount--
 			remainingBytes -= len(part.Data)
 		}
 	}
+	req.Messages = slices.Clone(req.Messages)
+	trim := func(i int) {
+		parts := req.Messages[i].Parts
+		req.Messages[i].Parts = slices.DeleteFunc(slices.Clone(parts), func(p provider.Part) bool {
+			if p.Type != "image" {
+				return false
+			}
+			if remainingCount == 0 || len(p.Data) > remainingBytes {
+				return true
+			}
+			remainingCount--
+			remainingBytes -= len(p.Data)
+			return false
+		})
+	}
+	trim(last)
 	for i := len(pictures) - 1; i >= 0; i-- {
 		pic := pictures[i]
 		if remainingCount <= 0 || len(pic.image.Data) > remainingBytes {
@@ -152,20 +162,8 @@ func (pictures profilePictures) visualContext(req provider.Request) provider.Req
 	if len(req.ToolMedia) == 0 {
 		return req
 	}
-	req.Messages = slices.Clone(req.Messages)
 	for i := last - 1; i >= 0; i-- {
-		parts := req.Messages[i].Parts
-		req.Messages[i].Parts = slices.DeleteFunc(slices.Clone(parts), func(p provider.Part) bool {
-			if p.Type != "image" {
-				return false
-			}
-			if remainingCount == 0 || len(p.Data) > remainingBytes {
-				return true
-			}
-			remainingCount--
-			remainingBytes -= len(p.Data)
-			return false
-		})
+		trim(i)
 	}
 	return req
 }
@@ -185,7 +183,7 @@ func acceptToolMedia(req *provider.Request, call provider.ToolCall, result provi
 			}
 		}
 	}
-	if n := len(req.Messages); n > 0 {
+	if n := len(req.Messages); n > 0 && call.Name != "image_generate" && call.Name != "image_edit" && call.Name != "preview_image" {
 		measure(req.Messages[n-1].Parts)
 	}
 	measure(req.ToolMedia)

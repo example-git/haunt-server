@@ -91,6 +91,19 @@ func (f *Features) aiRoutes(a *api, mux routeRegistrar) {
 		item, err := f.AI.SaveSettings(r.Context(), p, r.PathValue("id"), input)
 		result(w, r, item, err)
 	}))
+	mux.HandleFunc("GET /api/v1/channels/{id}/ai/media/{attachment}/instructions", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+		item, err := f.AI.ImageSpec(r.Context(), p, r.PathValue("id"), r.PathValue("attachment"), nil)
+		result(w, r, item, err)
+	}))
+	mux.HandleFunc("PUT /api/v1/channels/{id}/ai/media/{attachment}/instructions", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+		var in ai.EditSpecInput
+		if err := decodeLimit(w, r, &in, 32768); err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		item, err := f.AI.ImageSpec(r.Context(), p, r.PathValue("id"), r.PathValue("attachment"), &in)
+		result(w, r, item, err)
+	}))
 	mux.HandleFunc("GET /api/v1/channels/{id}/ai/presets", a.authenticated(func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		items, err := f.AI.Presets(r.Context(), p, r.PathValue("id"))
 		result(w, r, aiPresetsResponse{Presets: items}, err)

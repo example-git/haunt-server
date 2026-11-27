@@ -36,6 +36,42 @@
         ],
         "type": "object"
       },
+      "AiEditSpec": {
+        "properties": {
+          "can_edit": {
+            "type": "boolean"
+          },
+          "editor_id": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "instructions",
+          "can_edit"
+        ],
+        "type": "object"
+      },
+      "AiEditSpecInput": {
+        "properties": {
+          "instructions": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instructions"
+        ],
+        "type": "object"
+      },
       "AiOAuthCompleteInput": {
         "properties": {
           "code": {
@@ -268,6 +304,12 @@
               "null",
               "boolean"
             ]
+          },
+          "timezone": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
         "required": [
@@ -327,6 +369,12 @@
             "type": [
               "null",
               "boolean"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         },
@@ -7710,6 +7758,128 @@
           }
         ],
         "summary": "Upload a bounded AI avatar (ManageChannels)",
+        "tags": [
+          "channels"
+        ]
+      }
+    },
+    "/api/v1/channels/{id}/ai/media/{attachment}/instructions": {
+      "get": {
+        "description": "",
+        "operationId": "aiImageInstructions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attachment",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiEditSpec"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Read edit instructions for an image version",
+        "tags": [
+          "channels"
+        ]
+      },
+      "put": {
+        "description": "",
+        "operationId": "aiSaveImageInstructions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attachment",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiEditSpecInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiEditSpec"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpapiErrorResponse"
+                }
+              }
+            },
+            "description": "Error; inspect the stable error code. Common statuses: 400 invalid request, 401 invalid session, 403 denied, 404 missing/expired, 409 conflict, 413 oversized, 429 rate limit, 503 capacity/provider unavailable, 507 attachment capacity."
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Save or clear edit instructions for an image version",
         "tags": [
           "channels"
         ]

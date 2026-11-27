@@ -151,6 +151,8 @@ func endpointContracts() map[string]endpointContract {
 	add("POST /api/v1/ai/oauth/{session}/complete", "aiOAuthComplete", "Exchange an OAuth code and encrypt account credentials (ManageConfiguration)", ai.OAuthCompleteInput{}, ai.Account{}, 200)
 	add("GET /api/v1/channels/{id}/ai", "aiSettings", "Read AI channel settings", nil, ai.Settings{}, 200)
 	add("PUT /api/v1/channels/{id}/ai", "aiSaveSettings", "Configure an AI channel (ManageChannels)", ai.SettingsInput{}, ai.Settings{}, 200)
+	add("GET /api/v1/channels/{id}/ai/media/{attachment}/instructions", "aiImageInstructions", "Read edit instructions for an image version", nil, ai.EditSpec{}, 200)
+	add("PUT /api/v1/channels/{id}/ai/media/{attachment}/instructions", "aiSaveImageInstructions", "Save or clear edit instructions for an image version", ai.EditSpecInput{}, ai.EditSpec{}, 200)
 	add("GET /api/v1/channels/{id}/ai/presets", "aiPresets", "List mentionable AI personas", nil, aiPresetsResponse{}, 200)
 	add("POST /api/v1/channels/{id}/ai/presets", "aiCreatePreset", "Create an AI persona (ManageChannels)", ai.PresetInput{}, ai.Preset{}, 200)
 	add("PUT /api/v1/channels/{id}/ai/presets/{preset}", "aiSavePreset", "Update an AI persona (ManageChannels)", ai.PresetInput{}, ai.Preset{}, 200)

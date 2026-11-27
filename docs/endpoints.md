@@ -43,6 +43,7 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | GET | `/api/v1/channels/{id}` | Get a channel and effective permissions | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/ai` | Read AI channel settings | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/ai/avatar` | Read an authorized AI avatar | Bearer | 200 |
+| GET | `/api/v1/channels/{id}/ai/media/{attachment}/instructions` | Read edit instructions for an image version | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/ai/presets` | List mentionable AI personas | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/ai/presets/{preset}/avatar` | Read an authorized AI avatar | Bearer | 200 |
 | GET | `/api/v1/channels/{id}/ai/turns` | Read authoritative AI turn status after reconnect | Bearer | 200 |
@@ -134,6 +135,7 @@ Interactive reference: `/docs/`. Specifications: `/openapi.json` and `/websocket
 | PUT | `/api/v1/channels/{id}` | Update a channel | Bearer | 200 |
 | PUT | `/api/v1/channels/{id}/ai` | Configure an AI channel (ManageChannels) | Bearer | 200 |
 | PUT | `/api/v1/channels/{id}/ai/avatar` | Upload a bounded AI avatar (ManageChannels) | Bearer | 200 |
+| PUT | `/api/v1/channels/{id}/ai/media/{attachment}/instructions` | Save or clear edit instructions for an image version | Bearer | 200 |
 | PUT | `/api/v1/channels/{id}/ai/presets/{preset}` | Update an AI persona (ManageChannels) | Bearer | 200 |
 | PUT | `/api/v1/channels/{id}/ai/presets/{preset}/avatar` | Upload a bounded AI avatar (ManageChannels) | Bearer | 200 |
 | PUT | `/api/v1/channels/{id}/permissions/{role}` | Set a role's permission override | Bearer | 204 |

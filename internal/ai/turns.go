@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/example-git/haunt-server/internal/ai/provider"
+	"github.com/example-git/haunt-server/internal/ai/tools"
 	"github.com/example-git/haunt-server/internal/chat"
 	"github.com/example-git/haunt-server/internal/identity"
 	"github.com/jackc/pgx/v5"
@@ -250,6 +251,12 @@ func (s *Service) emitTurn(ctx context.Context, tx pgx.Tx, id string) error {
 }
 
 type claimedTurn struct {
+	pages             tools.PageMemory
+	started           time.Time
+	drafts            map[string]*imageDraft
+	draftOrder        []string
+	draftBytes, round int
+	replyText         string
 	Turn
 	snapshot        snapshot
 	boundary        int64
@@ -427,6 +434,7 @@ func (s *Service) authorizeInput(ctx context.Context, channelID, actorID, sessio
 	return p, nil
 }
 func (s *Service) execute(parent context.Context, t claimedTurn) {
+	t.started = time.Now()
 	ctx, stop := context.WithCancelCause(parent)
 	activity := newRunActivity()
 	cancel := func() { stop(context.Canceled) }
@@ -576,6 +584,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 			s.finish(parent, t, "completed", "", nil)
 			return
 		}
+		t.round++
 		t.hadToolCall = true
 		req.ToolResults = nil
 		req.ToolMedia = nil
@@ -585,6 +594,7 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 				s.fail(parent, t, err)
 				return
 			}
+			t.replyText = text
 			previousSpeaker := t.snapshot.Author.ID
 			var result provider.ToolResult
 			var e error
@@ -609,7 +619,16 @@ func (s *Service) execute(parent context.Context, t claimedTurn) {
 				last = time.Time{}
 			}
 			if len(result.Media) > 0 {
+				var receipt struct {
+					ID string `json:"draft_id"`
+				}
+				_ = json.Unmarshal([]byte(result.Content), &receipt)
 				result = acceptToolMedia(&req, call, result)
+				if d := t.drafts[receipt.ID]; !result.IsError && d != nil {
+					d.previewRound = t.round
+				} else if result.IsError && d != nil {
+					result.Content += " Retry preview_image with draft_id " + d.id + "."
+				}
 			}
 			req.ToolResults = append(req.ToolResults, result)
 		}
@@ -627,6 +646,9 @@ func (s *Service) checkpoint(ctx context.Context, t claimedTurn, text string) er
 	return s.checkpointCard(ctx, t, text, nil)
 }
 func (s *Service) checkpointCard(ctx context.Context, t claimedTurn, text string, card *chat.Consultation) error {
+	return s.checkpointImage(ctx, t, text, card, nil)
+}
+func (s *Service) checkpointImage(ctx context.Context, t claimedTurn, text string, card *chat.Consultation, image *acceptedImage) error {
 	if _, err := s.checkExecution(ctx, t); err != nil {
 		return err
 	}
@@ -642,10 +664,30 @@ func (s *Service) checkpointCard(ctx context.Context, t claimedTurn, text string
 		if err := tx.QueryRow(ctx, channelUsageSQL, t.ChannelID).Scan(&before); err != nil {
 			return err
 		}
-		if text != "" || card != nil {
-			message, err := s.chat.WriteAIReply(ctx, tx, t.ChannelID, t.messageRequest, t.responseRequest, text, t.snapshot.Author, card)
+		if text != "" || card != nil || image != nil {
+			var claims []chat.GeneratedAttachment
+			if image != nil {
+				claims = append(claims, image.claim)
+			}
+			message, err := s.chat.WriteAIReply(ctx, tx, t.ChannelID, t.messageRequest, t.responseRequest, text, t.snapshot.Author, card, claims...)
 			if err != nil {
 				return err
+			}
+			if image != nil {
+				_, _, ids := image.provenance.sources()
+				available, err := s.availableSources(ctx, tx, t, ids)
+				if err != nil {
+					return err
+				}
+				for _, id := range ids {
+					if !available[id] {
+						return invalidImage()
+					}
+				}
+				image.message = message.ID
+				if _, err = tx.Exec(ctx, `INSERT INTO chatxo.ai_media(attachment_id,message_id,provenance) VALUES($1,$2,$3)`, image.claim.ID, message.ID, image.provenance); err != nil {
+					return err
+				}
 			}
 			if err = supersedeEvents(ctx, tx, message.ID, "message.updated"); err != nil {
 				return err
@@ -710,6 +752,10 @@ type pendingFinish struct {
 }
 
 func (s *Service) finish(ctx context.Context, t claimedTurn, status, code string, retry *time.Time) {
+	t.drafts = nil
+	t.draftOrder = nil
+	t.pages = tools.PageMemory{}
+	t.profilePictures = nil
 	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	err := s.transaction(bounded, func(tx pgx.Tx) error {

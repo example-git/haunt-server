@@ -16,15 +16,18 @@ import (
 func (s *Service) configureSpeaker(ctx context.Context, p identity.Principal, t claimedTurn, req *provider.Request) error {
 	req.Instructions = t.snapshot.Instructions + "\n" + t.snapshot.PresetInstructions + "\nSelected assistant identity: " + t.snapshot.Author.Name + " (" + t.snapshot.Author.ID + ")."
 	req.Tools = append(s.tools.Schemas(), viewUserProfileTool())
+	var timezone string
 	var switching, immediate, consultations bool
-	if err := s.pool.QueryRow(ctx, `SELECT allow_agent_switch,switch_during_reply,allow_consultations FROM chatxo.ai_channel_settings WHERE channel_id=$1`, t.ChannelID).Scan(&switching, &immediate, &consultations); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT timezone,allow_agent_switch,switch_during_reply,allow_consultations FROM chatxo.ai_channel_settings WHERE channel_id=$1`, t.ChannelID).Scan(&timezone, &switching, &immediate, &consultations); err != nil {
 		return err
 	}
 	roster, err := s.Presets(ctx, p, t.ChannelID)
 	if err != nil {
 		return err
 	}
+	req.Tools = append(req.Tools, historyTools()...)
 	var instructions strings.Builder
+	instructions.WriteString(runtimeContext(t.started, timezone))
 	if switching && immediate {
 		fmt.Fprintf(&instructions, "You are currently writing as %s.", t.snapshot.Author.Name)
 	} else {
@@ -85,7 +88,7 @@ func (s *Service) context(ctx context.Context, p identity.Principal, t claimedTu
 	inputIDs := t.inputIDs()
 	rows, err := s.pool.Query(ctx, `WITH history AS (
 		SELECT m.id,m.seq,false AS current_input FROM chatxo.messages m
-		WHERE m.conversation_id=$1 AND m.ai_visible AND NOT m.deleted AND NOT (m.id=ANY($4::uuid[]))
+		WHERE m.conversation_id=$1 AND m.ai_visible AND NOT m.deleted AND chatxo.message_retained(m.conversation_id,m.created_at,$6,0) AND NOT (m.id=ANY($4::uuid[]))
 		AND (m.seq<=$2 OR (m.author_id IS NULL AND EXISTS (
 			SELECT 1 FROM chatxo.ai_turns previous
 			WHERE previous.response_request_id=COALESCE(m.ai_response_request_id,m.request_id)
@@ -93,16 +96,16 @@ func (s *Service) context(ctx context.Context, p identity.Principal, t claimedTu
 		ORDER BY m.seq DESC LIMIT $5
 	), selected AS (
 		SELECT * FROM history UNION ALL
-		SELECT m.id,m.seq,true FROM chatxo.messages m WHERE m.id=ANY($4::uuid[]) AND m.conversation_id=$1 AND m.ai_visible AND NOT m.deleted
+		SELECT m.id,m.seq,true FROM chatxo.messages m WHERE m.id=ANY($4::uuid[]) AND m.conversation_id=$1 AND m.ai_visible AND NOT m.deleted AND chatxo.message_retained(m.conversation_id,m.created_at,$6,0)
 	)
 	SELECT m.id,COALESCE(m.author_id::text,''),m.ai_author,m.body,m.attachment_ids,COALESCE(u.username,''),COALESCE(u.display_name,''),
 		COALESCE(r.id::text,''),COALESCE(r.author_id::text,''),COALESCE(ru.username,''),COALESCE(ru.display_name,''),
 		r.ai_author,COALESCE(r.attachment_ids,'{}'::uuid[]),selected.current_input
 	FROM selected JOIN chatxo.messages m ON m.id=selected.id
 	LEFT JOIN chatxo.users u ON u.id=m.author_id
-	LEFT JOIN chatxo.messages r ON r.id=m.reply_to_id AND r.conversation_id=m.conversation_id AND r.ai_visible AND NOT r.deleted
+	LEFT JOIN chatxo.messages r ON r.id=m.reply_to_id AND r.conversation_id=m.conversation_id AND r.ai_visible AND NOT r.deleted AND chatxo.message_retained(r.conversation_id,r.created_at,$6,0)
 	LEFT JOIN chatxo.users ru ON ru.id=r.author_id
-	ORDER BY selected.current_input DESC,selected.seq DESC LIMIT $5`, t.ChannelID, t.boundary, t.ID, inputIDs, historyMessageLimit)
+	ORDER BY selected.current_input DESC,selected.seq DESC LIMIT $5`, t.ChannelID, t.boundary, t.ID, inputIDs, historyMessageLimit, s.chat.CurrentPolicy().TextRetentionDays)
 	if err != nil {
 		return req, err
 	}

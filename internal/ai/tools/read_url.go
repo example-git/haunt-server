@@ -27,6 +27,7 @@ const maxMarkdownBytes = 4 << 20
 const browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 
 type readParams struct {
+	Find      string `json:"find"`
 	SourceURL string `json:"source_url"`
 	MediaRole string `json:"media_role"`
 	MaxFrames *int   `json:"max_frames"`
@@ -251,12 +252,24 @@ func (r *Registry) readURL(ctx context.Context, p readParams) (any, []provider.P
 	if p.MaxFrames != nil && (*p.MaxFrames < 1 || *p.MaxFrames > maxSamples) {
 		return nil, nil, errors.New("max_frames must be between 1 and 6")
 	}
+	memory, _ := ctx.Value(pageMemoryKey{}).(*PageMemory)
+	if len([]rune(p.Find)) > 256 {
+		return nil, nil, errors.New("find is limited to 256 characters")
+	}
+	if p.Find != "" && memory != nil {
+		if page, ok := memory.pages[p.URL]; ok {
+			return findPassages(p, page)
+		}
+	}
 	res, err := r.fetch(ctx, p.URL)
 	if err != nil {
 		return nil, nil, err
 	}
 	b, u, kind := res.data, res.final, res.kind
 	if strings.HasPrefix(kind, "image/") {
+		if p.Find != "" {
+			return nil, nil, errors.New("find requires a text resource")
+		}
 		if p.Offset != 0 {
 			return nil, nil, errors.New("offset is only supported for text")
 		}
@@ -268,6 +281,11 @@ func (r *Registry) readURL(ctx context.Context, p readParams) (any, []provider.P
 		if err != nil {
 			return nil, nil, err
 		}
+	}
+	snapshot := textSnapshot{URL: u.String(), Content: content}
+	memory.remember(p.URL, snapshot)
+	if p.Find != "" {
+		return findPassages(p, snapshot)
 	}
 	characters := []rune(content)
 	if p.Offset > len(characters) {

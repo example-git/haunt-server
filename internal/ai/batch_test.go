@@ -150,7 +150,7 @@ func TestHiddenPostNeverEntersTurnsHistoryOrImageInputs(t *testing.T) {
 	if m.Author == nil || m.Author.MessageID != visible.ID || m.Author.ReplyTo != nil || len(m.Parts) != 1 || m.Parts[0].Text != visible.Body {
 		t.Fatal("hidden reply metadata or image reached the provider")
 	}
-	sources, err := f.s.editImageInputs(ctx, f.p, turn, 10, 23<<20)
+	sources, err := f.s.defaultTargets(ctx, turn)
 	if err != nil || len(sources) != 0 {
 		t.Fatal("hidden image reached the edit tool", err)
 	}
@@ -205,14 +205,8 @@ func TestBatchImagesPreferNewestCurrentSources(t *testing.T) {
 	if len(seen) != 10 || !slices.EqualFunc(seen, sent[2:], bytes.Equal) {
 		t.Fatal("image cap, priority or output order incorrect")
 	}
-	edits, err := f.s.editImageInputs(ctx, f.p, turn, 10, 23<<20)
-	if err != nil || len(edits) != 10 {
-		t.Fatal("edit cap", len(edits), err)
-	}
-	for i := range edits {
-		if !bytes.Equal(edits[i].Data, seen[i]) {
-			t.Fatal("edit/context selection disagrees")
-		}
+	if _, err := f.s.imageInputs(ctx, f.p, turn, "image_edit", imageInput{}); err == nil {
+		t.Fatal("ambiguous batch silently selected an edit target")
 	}
 	f.accounting(t)
 }

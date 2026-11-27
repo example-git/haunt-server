@@ -37,6 +37,42 @@
         ],
         "type": "object"
       },
+      "AiEditSpec": {
+        "properties": {
+          "can_edit": {
+            "type": "boolean"
+          },
+          "editor_id": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "instructions",
+          "can_edit"
+        ],
+        "type": "object"
+      },
+      "AiEditSpecInput": {
+        "properties": {
+          "instructions": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instructions"
+        ],
+        "type": "object"
+      },
       "AiOAuthCompleteInput": {
         "properties": {
           "code": {
@@ -269,6 +305,12 @@
               "null",
               "boolean"
             ]
+          },
+          "timezone": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
         "required": [
@@ -328,6 +370,12 @@
             "type": [
               "null",
               "boolean"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         },

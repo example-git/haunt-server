@@ -63,7 +63,7 @@ func (s *Service) Settings(ctx context.Context, p identity.Principal, id string)
 		if err := s.enforce(ctx, tx, id); err != nil {
 			return err
 		}
-		return tx.QueryRow(ctx, `SELECT s.channel_id,COALESCE(s.account_id::text,''),s.provider,s.model,s.instructions,s.name,s.avatar_url,s.max_bytes,s.allow_agent_switch,s.switch_during_reply,s.allow_consultations,s.max_consultations,COALESCE(s.active_preset_id::text,''),s.revision,COALESCE(a.status,'disconnected') FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_accounts a ON a.id=s.account_id WHERE s.channel_id=$1`, id).Scan(&out.ChannelID, &out.AccountID, &out.Provider, &out.Model, &out.Instructions, &out.Name, &out.AvatarURL, &out.MaxBytes, &out.AllowAgentSwitch, &out.SwitchDuringReply, &out.AllowConsultations, &out.MaxConsultations, &out.ActivePresetID, &out.Revision, &out.ConnectionStatus)
+		return tx.QueryRow(ctx, `SELECT s.timezone,s.channel_id,COALESCE(s.account_id::text,''),s.provider,s.model,s.instructions,s.name,s.avatar_url,s.max_bytes,s.allow_agent_switch,s.switch_during_reply,s.allow_consultations,s.max_consultations,COALESCE(s.active_preset_id::text,''),s.revision,COALESCE(a.status,'disconnected') FROM chatxo.ai_channel_settings s LEFT JOIN chatxo.ai_accounts a ON a.id=s.account_id WHERE s.channel_id=$1`, id).Scan(&out.Timezone, &out.ChannelID, &out.AccountID, &out.Provider, &out.Model, &out.Instructions, &out.Name, &out.AvatarURL, &out.MaxBytes, &out.AllowAgentSwitch, &out.SwitchDuringReply, &out.AllowConsultations, &out.MaxConsultations, &out.ActivePresetID, &out.Revision, &out.ConnectionStatus)
 	})
 	if err != nil {
 		return Settings{}, err
@@ -87,6 +87,11 @@ func (s *Service) Settings(ctx context.Context, p identity.Principal, id string)
 func (s *Service) SaveSettings(ctx context.Context, p identity.Principal, id string, v SettingsInput) (Settings, error) {
 	if _, err := s.channel(ctx, p, id, true); err != nil {
 		return Settings{}, err
+	}
+	if v.Timezone != nil && *v.Timezone != "" {
+		if _, err := zone(*v.Timezone); err != nil {
+			return Settings{}, identity.ErrInvalid
+		}
 	}
 	if (v.MaxConsultations != nil && (*v.MaxConsultations < 1 || *v.MaxConsultations > 100)) || !validName(v.Name) || !validInstructions(v.Instructions) || v.MaxBytes < 4096 || (v.AccountID != "" && !identity.ValidID(v.AccountID)) {
 		return Settings{}, identity.ErrInvalid
@@ -138,7 +143,7 @@ func (s *Service) SaveSettings(ctx context.Context, p identity.Principal, id str
 		if v.AvatarURL != "" && v.AvatarURL != avatar {
 			return identity.ErrInvalid
 		}
-		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET account_id=$2,provider=$3,model=$4,instructions=$5,name=$6,max_bytes=$7,allow_agent_switch=$8,switch_during_reply=COALESCE($9,switch_during_reply),allow_consultations=COALESCE($10,allow_consultations),max_consultations=COALESCE($11,max_consultations),revision=revision+1 WHERE channel_id=$1`, id, nullable(v.AccountID), v.Provider, v.Model, v.Instructions, v.Name, v.MaxBytes, v.AllowAgentSwitch, v.SwitchDuringReply, v.AllowConsultations, v.MaxConsultations)
+		_, err = tx.Exec(ctx, `UPDATE chatxo.ai_channel_settings SET account_id=$2,provider=$3,model=$4,instructions=$5,name=$6,max_bytes=$7,allow_agent_switch=$8,switch_during_reply=COALESCE($9,switch_during_reply),allow_consultations=COALESCE($10,allow_consultations),max_consultations=COALESCE($11,max_consultations),timezone=COALESCE($12,timezone),revision=revision+1 WHERE channel_id=$1`, id, nullable(v.AccountID), v.Provider, v.Model, v.Instructions, v.Name, v.MaxBytes, v.AllowAgentSwitch, v.SwitchDuringReply, v.AllowConsultations, v.MaxConsultations, v.Timezone)
 		if err != nil {
 			return err
 		}

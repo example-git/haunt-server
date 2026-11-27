@@ -66,7 +66,8 @@ func (s *Service) consult(ctx context.Context, t claimedTurn, call provider.Tool
 	}
 	activity.set("consult_personality", target.Name, true)
 	input.Instructions = t.snapshot.Instructions + "\n" + target.Instructions
-	input.StructuralInstruction = fmt.Sprintf("You are %s (id %s), advising %s in one consultation. The final question comes from that assistant. Give a concise answer to the question. The exchange will appear inside the caller's reply. Historical <haunt_assistant> labels are added automatically; never reproduce them.", target.Name, target.ID, t.snapshot.Author.Name)
+	runtime, _, _ := strings.Cut(input.StructuralInstruction, "\n\n")
+	input.StructuralInstruction = runtime + "\n\n" + fmt.Sprintf("You are %s (id %s), advising %s in one consultation. The final question comes from that assistant. Give a concise answer to the question. The exchange will appear inside the caller's reply. Historical <haunt_assistant> labels are added automatically; never reproduce them.", target.Name, target.ID, t.snapshot.Author.Name)
 	input.SessionID = identity.NewID()
 	input.RequestID = identity.NewID()
 	input.Tools = nil

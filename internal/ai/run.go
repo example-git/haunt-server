@@ -113,7 +113,7 @@ func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *cla
 	detail := toolDetail(call)
 	action := "tool_running"
 	switch call.Name {
-	case "image_generate", "image_edit", "switch_personality", "web_search", "read_url", "view_user_profile":
+	case "attach_image", "preview_image", "search_conversation", "resolve_media", "clock", "image_generate", "image_edit", "switch_personality", "web_search", "read_url", "view_user_profile":
 		action = call.Name
 	}
 	a.set(action, detail, true)
@@ -127,11 +127,17 @@ func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *cla
 		a.set(state, shortText(description, 128), false)
 	})
 	switch call.Name {
+	case "search_conversation":
+		return s.searchConversation(ctx, *t, call)
+	case "resolve_media":
+		return s.resolveMedia(ctx, *t, call)
+	case "clock":
+		return clockTool(call)
 	case "view_user_profile":
 		return s.viewUserProfile(ctx, t, call)
-	case "image_generate", "image_edit":
+	case "image_generate", "image_edit", "attach_image", "preview_image":
 		if t.snapshot.Provider == string(provider.Codex) {
-			return s.runImageTool(ctx, p, *t, call)
+			return s.runImageTool(ctx, p, t, call)
 		}
 		return toolFailure(call, "Image tools require the Codex provider."), nil
 	case "switch_personality":
@@ -143,7 +149,7 @@ func (s *Service) dispatchTool(ctx context.Context, p identity.Principal, t *cla
 		}
 		return s.requestSwitch(ctx, t, args.PresetID, call)
 	default:
-		return s.tools.Execute(tools.WithChannel(ctx, t.ChannelID), call)
+		return s.tools.Execute(tools.WithPageMemory(tools.WithChannel(ctx, t.ChannelID), &t.pages), call)
 	}
 }
 

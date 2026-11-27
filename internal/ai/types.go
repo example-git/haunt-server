@@ -15,6 +15,7 @@ const DefaultChannelMaxBytes int64 = 64 << 20
 const DefaultGlobalMaxBytes int64 = 128 << 20
 
 type Options struct {
+	PublicURL       string
 	URLReader       config.URLReaderLimits
 	DiffbotKey      string `json:"-"`
 	InstanceID      string
@@ -23,17 +24,18 @@ type Options struct {
 	GlobalMaxBytes  int64
 }
 type SettingsInput struct {
-	AllowConsultations *bool  `json:"allow_consultations,omitempty"`
-	MaxConsultations   *int   `json:"max_consultations,omitempty"`
-	AllowAgentSwitch   bool   `json:"allow_agent_switch"`
-	SwitchDuringReply  *bool  `json:"switch_during_reply,omitempty"`
-	AccountID          string `json:"account_id"`
-	Provider           string `json:"provider"`
-	Model              string `json:"model"`
-	Instructions       string `json:"instructions"`
-	Name               string `json:"name"`
-	AvatarURL          string `json:"avatar_url,omitempty"`
-	MaxBytes           int64  `json:"max_bytes"`
+	Timezone           *string `json:"timezone,omitempty"`
+	AllowConsultations *bool   `json:"allow_consultations,omitempty"`
+	MaxConsultations   *int    `json:"max_consultations,omitempty"`
+	AllowAgentSwitch   bool    `json:"allow_agent_switch"`
+	SwitchDuringReply  *bool   `json:"switch_during_reply,omitempty"`
+	AccountID          string  `json:"account_id"`
+	Provider           string  `json:"provider"`
+	Model              string  `json:"model"`
+	Instructions       string  `json:"instructions"`
+	Name               string  `json:"name"`
+	AvatarURL          string  `json:"avatar_url,omitempty"`
+	MaxBytes           int64   `json:"max_bytes"`
 }
 type Settings struct {
 	SettingsInput

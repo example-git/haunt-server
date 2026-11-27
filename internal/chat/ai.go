@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -25,13 +26,19 @@ type AIAcceptance interface {
 
 var ErrAIStorageFull = errors.New("ai_storage_full")
 
+type GeneratedAttachment struct{ ID, Generation string }
+
 func (s *Store) WriteAI(ctx context.Context, tx pgx.Tx, conv, request, responseRequest, body string, author AIAuthor, images ...string) (Message, error) {
-	return s.writeAI(ctx, tx, conv, request, responseRequest, body, author, false, nil, images...)
+	var claims []GeneratedAttachment
+	for _, id := range images {
+		claims = append(claims, GeneratedAttachment{id, request})
+	}
+	return s.writeAI(ctx, tx, conv, request, responseRequest, body, author, false, nil, claims...)
 }
-func (s *Store) WriteAIReply(ctx context.Context, tx pgx.Tx, conv, request, responseRequest, body string, author AIAuthor, card *Consultation) (Message, error) {
-	return s.writeAI(ctx, tx, conv, request, responseRequest, body, author, true, card)
+func (s *Store) WriteAIReply(ctx context.Context, tx pgx.Tx, conv, request, responseRequest, body string, author AIAuthor, card *Consultation, images ...GeneratedAttachment) (Message, error) {
+	return s.writeAI(ctx, tx, conv, request, responseRequest, body, author, true, card, images...)
 }
-func (s *Store) writeAI(ctx context.Context, tx pgx.Tx, conv, request, responseRequest, body string, author AIAuthor, streaming bool, card *Consultation, images ...string) (Message, error) {
+func (s *Store) writeAI(ctx context.Context, tx pgx.Tx, conv, request, responseRequest, body string, author AIAuthor, streaming bool, card *Consultation, images ...GeneratedAttachment) (Message, error) {
 	if !identity.ValidID(conv) || !identity.ValidID(request) || !identity.ValidID(responseRequest) || !identity.ValidID(author.ID) || strings.TrimSpace(author.Name) == "" || !utf8.ValidString(author.Name) || utf8.RuneCountInString(author.Name) > 80 || strings.ContainsAny(author.Name, "\x00\r\n") || !utf8.ValidString(body) || strings.ContainsRune(body, 0) {
 		return Message{}, identity.ErrInvalid
 	}
@@ -53,7 +60,7 @@ func (s *Store) writeAI(ctx context.Context, tx pgx.Tx, conv, request, responseR
 	}
 	var oldBytes int64
 	if create {
-		m = Message{AIStreaming: streaming, ID: identity.NewID(), ConversationID: conv, AIAuthor: &author, Body: body, Attachments: append([]string{}, images...), RequestID: request}
+		m = Message{AIStreaming: streaming, ID: identity.NewID(), ConversationID: conv, AIAuthor: &author, Body: body, Attachments: []string{}, RequestID: request}
 		if err = tx.QueryRow(ctx, `UPDATE chatxo.conversations SET last_seq=last_seq+1 WHERE id=$1 RETURNING last_seq,clock_timestamp()`, conv).Scan(&m.Seq, &m.CreatedAt); err != nil {
 			return Message{}, err
 		}
@@ -61,7 +68,7 @@ func (s *Store) writeAI(ctx context.Context, tx pgx.Tx, conv, request, responseR
 		if m.Deleted || m.AIAuthor == nil || m.AIAuthor.ID != author.ID {
 			return Message{}, identity.ErrConflict
 		}
-		if m.Body == body && card == nil {
+		if m.Body == body && card == nil && len(images) == 0 {
 			return m, nil
 		}
 		if err = tx.QueryRow(ctx, `SELECT bytes FROM chatxo.messages WHERE id=$1`, m.ID).Scan(&oldBytes); err != nil {
@@ -70,6 +77,11 @@ func (s *Store) writeAI(ctx context.Context, tx pgx.Tx, conv, request, responseR
 		m.Body = body
 		if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&m.EditedAt); err != nil {
 			return Message{}, err
+		}
+	}
+	for _, image := range images {
+		if !slices.Contains(m.Attachments, image.ID) {
+			m.Attachments = append(m.Attachments, image.ID)
 		}
 	}
 	position := len(m.Consultations)
@@ -99,7 +111,7 @@ func (s *Store) writeAI(ctx context.Context, tx pgx.Tx, conv, request, responseR
 		_, err = tx.Exec(ctx, `INSERT INTO chatxo.messages(id,conversation_id,ai_author,seq,body,attachment_ids,created_at,request_id,request_hash,bytes,ai_response_request_id,ai_streaming) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11::uuid,$8::uuid),$12)`, m.ID, conv, author, m.Seq, body, m.Attachments, m.CreatedAt, request, hash[:], messageBytes(m), responseRequest, streaming)
 		kind = "message.created"
 	} else {
-		_, err = tx.Exec(ctx, `UPDATE chatxo.messages SET body=$2,edited_at=$3,bytes=$4 WHERE id=$1`, m.ID, body, m.EditedAt, messageBytes(m))
+		_, err = tx.Exec(ctx, `UPDATE chatxo.messages SET body=$2,edited_at=$3,bytes=$4,attachment_ids=$5 WHERE id=$1`, m.ID, body, m.EditedAt, messageBytes(m), m.Attachments)
 	}
 	if err != nil {
 		return Message{}, err
@@ -113,9 +125,9 @@ func (s *Store) writeAI(ctx context.Context, tx pgx.Tx, conv, request, responseR
 			return Message{}, err
 		}
 	}
-	if create {
+	{
 		for _, image := range images {
-			tag, e := tx.Exec(ctx, `UPDATE chatxo.attachments SET claimed=true,message_id=$1 WHERE id=$2 AND conversation_id=$3 AND ai_generation_id=$4 AND status='ready' AND NOT claimed`, m.ID, image, conv, request)
+			tag, e := tx.Exec(ctx, `UPDATE chatxo.attachments SET claimed=true,message_id=$1 WHERE id=$2 AND conversation_id=$3 AND ai_generation_id=$4 AND status='ready' AND (NOT claimed OR message_id=$1)`, m.ID, image.ID, conv, image.Generation)
 			if e != nil {
 				return Message{}, e
 			}

@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"strings"
 	"testing"
 
@@ -16,9 +17,9 @@ import (
 
 type accountImageFixture struct {
 	*testAdapter
-	t           *testing.T
-	inputCounts []int
-	output      []byte
+	t                *testing.T
+	inputCounts      []int
+	output, revision []byte
 }
 
 func (a *accountImageFixture) ID() provider.ID { return provider.Codex }
@@ -27,8 +28,11 @@ func (a *accountImageFixture) Image(_ context.Context, c provider.Credentials, p
 		a.t.Fatal("image call used incorrect account or prompt")
 	}
 	a.inputCounts = append(a.inputCounts, len(images))
-	if len(images) > 0 && !bytes.Equal(images[0].Data, a.output) {
+	if len(images) > 0 && !bytes.Equal(images[0].Data, a.output) && !bytes.Equal(images[0].Data, a.revision) {
 		a.t.Fatal("edit source bytes changed")
+	}
+	if len(a.inputCounts) == 2 {
+		return a.revision, nil
 	}
 	return a.output, nil
 }
@@ -42,6 +46,12 @@ func TestChannelCodexImagesAndReplyScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &accountImageFixture{testAdapter: &testAdapter{}, t: t, output: b.Bytes()}
+	img.Set(1, 1, color.White)
+	var revised bytes.Buffer
+	if err := png.Encode(&revised, img); err != nil {
+		t.Fatal(err)
+	}
+	adapter.revision = revised.Bytes()
 	f.s.adapters[provider.Codex] = adapter
 	credentials := provider.Credentials{AccessToken: "selected-test-access", AccountID: "selected-test-account"}
 	id := identity.NewID()
@@ -60,20 +70,71 @@ func TestChannelCodexImagesAndReplyScope(t *testing.T) {
 	f.send(t, "draw")
 	turn := f.claim(t)
 	call := provider.ToolCall{ID: "image-call", Name: "image_generate", Arguments: json.RawMessage(`{"prompt":"fixture prompt"}`)}
-	msgID, err := f.s.publishToolImage(ctx, f.p, turn, call)
+	// Drive the actual provider loop. Both previews must remain private until the
+	// agent selects the revision, even with text already checkpointed.
+	var msgID, accepted string
+	stage := 0
+	adapter.generate = func(_ context.Context, r provider.Request, emit func(provider.Event) error) (provider.Response, error) {
+		stage++
+		switch stage {
+		case 1:
+			return provider.Response{Text: "Working. ", Calls: []provider.ToolCall{call}}, nil
+		case 2, 3:
+			if len(r.ToolMedia) != 2 || r.ToolMedia[1].Type != "image" {
+				t.Fatal("missing visual preview", r.ToolResults)
+			}
+			if _, err := png.Decode(bytes.NewReader(r.ToolMedia[1].Data)); err != nil {
+				t.Fatal(err)
+			}
+			var count int
+			if err := f.s.pool.QueryRow(ctx, `SELECT count(*) FROM chatxo.attachments WHERE conversation_id=$1`, turn.ChannelID).Scan(&count); err != nil || count != 0 {
+				t.Fatal("draft published before acceptance", count, err)
+			}
+			var receipt struct {
+				ID string `json:"draft_id"`
+			}
+			if json.Unmarshal([]byte(r.ToolResults[0].Content), &receipt) != nil || receipt.ID == "" {
+				t.Fatal(r.ToolResults)
+			}
+			if stage == 2 {
+				return provider.Response{Calls: []provider.ToolCall{{Name: "image_edit", ID: "revise", Arguments: json.RawMessage(`{"prompt":"fixture prompt","target_id":"` + receipt.ID + `"}`)}}}, nil
+			}
+			return provider.Response{Calls: []provider.ToolCall{{Name: "attach_image", ID: "accept", Arguments: json.RawMessage(`{"draft_id":"` + receipt.ID + `"}`)}}}, nil
+		case 4:
+			if r.ToolResults[0].IsError {
+				t.Fatal(r.ToolResults)
+			}
+			var receipt struct {
+				ID      string `json:"attached_id"`
+				Message string `json:"message_id"`
+			}
+			if err := json.Unmarshal([]byte(r.ToolResults[0].Content), &receipt); err != nil {
+				t.Fatal(err)
+			}
+			msgID, accepted = receipt.Message, receipt.ID
+			return provider.Response{Text: "Here it is."}, nil
+		}
+		t.Fatal("unexpected provider step")
+		return provider.Response{}, nil
+	}
+	f.s.execute(ctx, turn)
+	adapter.generate = nil
+	var body string
+	var images []string
+	var storedDigest string
+	var messages int
+	if err = f.s.pool.QueryRow(ctx, `SELECT m.body,m.attachment_ids,d.provenance->>'output_sha256',(SELECT count(*) FROM chatxo.messages WHERE conversation_id=m.conversation_id AND ai_author IS NOT NULL) FROM chatxo.messages m JOIN chatxo.ai_media d ON d.message_id=m.id WHERE m.id=$1 AND NOT m.ai_streaming`, msgID).Scan(&body, &images, &storedDigest, &messages); err != nil || body != "Working. Here it is." || len(images) != 1 || images[0] != accepted || messages != 1 || storedDigest != digest(adapter.revision) {
+		t.Fatal("accepted draft not finalized on same message", body, images, err)
+	}
+	_, file, err := f.s.attachments.Get(ctx, f.p, accepted)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := f.s.publishToolImage(ctx, f.p, turn, call)
-	if err != nil || again != msgID || len(adapter.inputCounts) != 1 {
-		t.Fatalf("duplicate image: %v", err)
+	actual, err := io.ReadAll(file)
+	file.Close()
+	if err != nil || !bytes.Equal(actual, adapter.revision) {
+		t.Fatal("accepted file changed", err)
 	}
-	var claimed bool
-	err = f.s.pool.QueryRow(ctx, `SELECT a.claimed AND a.user_id IS NULL AND a.message_id=m.id AND a.id=ANY(m.attachment_ids) FROM chatxo.messages m JOIN chatxo.attachments a ON a.message_id=m.id WHERE m.id=$1`, msgID).Scan(&claimed)
-	if err != nil || !claimed {
-		t.Fatalf("image publication: %v", err)
-	}
-	f.s.execute(ctx, turn)
 	check := func(reply string, wantImages int) claimedTurn {
 		t.Helper()
 		if _, err := f.ch.Create(ctx, f.p, f.channel.ID, identity.NewID(), "look", reply, nil); err != nil {
@@ -103,11 +164,35 @@ func TestChannelCodexImagesAndReplyScope(t *testing.T) {
 	unrelated := check("", 0)
 	f.s.execute(ctx, unrelated)
 	reply := check(msgID, 1)
-	call.Name = "image_edit"
-	if _, err = f.s.publishToolImage(ctx, f.p, reply, call); err != nil {
+	stored, err := f.s.resolveMedia(ctx, reply, provider.ToolCall{Name: "resolve_media", Arguments: json.RawMessage(`{"attachment_id":"` + accepted + `"}`)})
+	if err != nil || stored.IsError || !strings.Contains(stored.Content, digest(adapter.revision)) {
+		t.Fatal(stored, err)
+	}
+	search, err := f.s.searchConversation(ctx, reply, provider.ToolCall{Name: "search_conversation", Arguments: json.RawMessage(`{"query":"Working.","media_only":true}`)})
+	if err != nil || search.IsError || !strings.Contains(search.Content, accepted) {
+		t.Fatal(search, err)
+	}
+	chain, err := f.s.searchConversation(ctx, reply, provider.ToolCall{Name: "search_conversation", Arguments: json.RawMessage(`{"reply_chain":"` + reply.TriggerMessageID + `"}`)})
+	if err != nil || chain.IsError || !strings.Contains(chain.Content, msgID) {
+		t.Fatal(chain, err)
+	}
+	spec, err := f.s.ImageSpec(ctx, f.p, reply.ChannelID, accepted, &EditSpecInput{Instructions: "Keep framing"})
+	if err != nil || spec.EditorID != f.p.User.ID {
+		t.Fatal(spec, err)
+	}
+	input, err := f.s.imageInputs(ctx, f.p, reply, "image_edit", imageInput{Target: accepted})
+	if err != nil || input.spec != "Keep framing" || input.operation.Parent != accepted {
+		t.Fatal(input.spec, err)
+	}
+	_, err = f.s.ImageSpec(ctx, f.p, reply.ChannelID, accepted, &EditSpecInput{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(adapter.inputCounts) != 2 || adapter.inputCounts[1] != 1 {
+	call.Name = "image_edit"
+	if _, err = f.s.makeDraft(ctx, f.p, &reply, call); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.inputCounts) != 3 || adapter.inputCounts[2] != 1 {
 		t.Fatal("missing edit source")
 	}
 	f.s.execute(ctx, reply)
@@ -133,11 +218,11 @@ func TestChannelCodexImagesAndReplyScope(t *testing.T) {
 			ID: tool, Name: tool,
 			Arguments: json.RawMessage(`{"prompt":"fixture prompt","reference_user_ids":["` + f.p.User.ID + `"]}`),
 		}
-		if _, err := f.s.publishToolImage(ctx, f.p, next, call); err != nil {
+		if _, err := f.s.makeDraft(ctx, f.p, &next, call); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(adapter.inputCounts) != 4 || adapter.inputCounts[2] != 1 || adapter.inputCounts[3] != 1 {
+	if len(adapter.inputCounts) != 5 || adapter.inputCounts[3] != 1 || adapter.inputCounts[4] != 1 {
 		t.Fatal("selected profile picture missing from a Codex operation")
 	}
 	f.s.execute(ctx, next)
